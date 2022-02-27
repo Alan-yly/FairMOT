@@ -8,17 +8,16 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from models import *
-from models.decode import mot_decode
-from models.model import create_model, load_model
-from models.utils import _tranpose_and_gather_feat
-from tracking_utils.kalman_filter import KalmanFilter
-from tracking_utils.log import logger
-from tracking_utils.utils import *
-from utils.image import get_affine_transform
-from utils.post_process import ctdet_post_process
-
-from tracker import matching
+from ..models import *
+from ..models.decode import mot_decode
+from ..models.model import create_model, load_model
+from ..models.utils import _tranpose_and_gather_feat
+from ..tracking_utils.kalman_filter import KalmanFilter
+from ..tracking_utils.log import logger
+from ..tracking_utils.utils import *
+from ..utils.image import get_affine_transform
+from ..utils.post_process import ctdet_post_process
+from ..tracker import matching
 
 from .basetrack import BaseTrack, TrackState
 
@@ -194,6 +193,7 @@ class JDETracker(object):
         self.std = np.array(opt.std, dtype=np.float32).reshape(1, 1, 3)
 
         self.kalman_filter = KalmanFilter()
+        self.det_result = {}
 
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
@@ -254,7 +254,7 @@ class JDETracker(object):
 
         dets = self.post_process(dets, meta)
         dets = self.merge_outputs([dets])[1]
-
+        self.det_result[self.frame_id] = dets
         remain_inds = dets[:, 4] > self.opt.conf_thres
         dets = dets[remain_inds]
         id_feature = id_feature[remain_inds]
@@ -375,7 +375,6 @@ class JDETracker(object):
         logger.debug('Removed: {}'.format([track.track_id for track in removed_stracks]))
 
         return output_stracks
-
 
 def joint_stracks(tlista, tlistb):
     exists = {}

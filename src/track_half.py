@@ -11,15 +11,14 @@ import argparse
 import motmetrics as mm
 import numpy as np
 import torch
+from .lib.tracker.multitracker import JDETracker
+from .lib.tracking_utils import visualization as vis
+from .lib.tracking_utils.log import logger
+from .lib.tracking_utils.timer import Timer
+from .lib.tracking_utils.evaluation import Evaluator
+from .lib.datasets.dataset import jde as datasets
 
-from tracker.multitracker import JDETracker
-from tracking_utils import visualization as vis
-from tracking_utils.log import logger
-from tracking_utils.timer import Timer
-from tracking_utils.evaluation import Evaluator
-import datasets.dataset.jde as datasets
-
-from tracking_utils.utils import mkdir_if_missing
+from .lib.tracking_utils.utils import mkdir_if_missing
 from opts import opts
 
 
@@ -90,7 +89,7 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
     # save results
     write_results(result_filename, results, data_type)
     #write_results_score(result_filename, results, data_type)
-    return frame_id, timer.average_time, timer.calls
+    return frame_id, timer.average_time, timer.calls,tracker.det_result
 
 
 def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), exp_name='demo',
@@ -104,6 +103,7 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
     accs = []
     n_frame = 0
     timer_avgs, timer_calls = [], []
+    all_det_result = {}
     for seq in seqs:
         output_dir = os.path.join(data_root, '..', 'outputs', exp_name, seq) if save_images or save_videos else None
         logger.info('start seq: {}'.format(seq))
@@ -111,8 +111,9 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
         result_filename = os.path.join(result_root, '{}.txt'.format(seq))
         meta_info = open(os.path.join(data_root, seq, 'seqinfo.ini')).read()
         frame_rate = int(meta_info[meta_info.find('frameRate') + 10:meta_info.find('\nseqLength')])
-        nf, ta, tc = eval_seq(opt, dataloader, data_type, result_filename,
+        nf, ta, tc,det_result = eval_seq(opt, dataloader, data_type, result_filename,
                               save_dir=output_dir, show_image=show_image, frame_rate=frame_rate)
+        all_det_result[seq] = det_result
         n_frame += nf
         timer_avgs.append(ta)
         timer_calls.append(tc)
@@ -141,6 +142,10 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
         namemap=mm.io.motchallenge_metric_names
     )
     print(strsummary)
+    import json
+    f = open(osp.join(data_root,"det_result.json"),'w')
+    f.write(json.dump(all_det_result))
+    f.close()
     Evaluator.save_summary(summary, os.path.join(result_root, 'summary_{}.xlsx'.format(exp_name)))
 
 
