@@ -11,14 +11,14 @@ import argparse
 import motmetrics as mm
 import numpy as np
 import torch
-from .lib.tracker.multitracker import JDETracker
-from .lib.tracking_utils import visualization as vis
-from .lib.tracking_utils.log import logger
-from .lib.tracking_utils.timer import Timer
-from .lib.tracking_utils.evaluation import Evaluator
-from .lib.datasets.dataset import jde as datasets
+from lib.tracker.multitracker import JDETracker
+from lib.tracking_utils import visualization as vis
+from lib.tracking_utils.log import logger
+from lib.tracking_utils.timer import Timer
+from lib.tracking_utils.evaluation import Evaluator
+from lib.datasets.dataset import jde as datasets
 
-from .lib.tracking_utils.utils import mkdir_if_missing
+from lib.tracking_utils.utils import mkdir_if_missing
 from opts import opts
 
 
@@ -89,7 +89,7 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
     # save results
     write_results(result_filename, results, data_type)
     #write_results_score(result_filename, results, data_type)
-    return frame_id, timer.average_time, timer.calls,tracker.det_result
+    return frame_id, timer.average_time, timer.calls
 
 
 def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), exp_name='demo',
@@ -103,7 +103,6 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
     accs = []
     n_frame = 0
     timer_avgs, timer_calls = [], []
-    all_det_result = {}
     for seq in seqs:
         output_dir = os.path.join(data_root, '..', 'outputs', exp_name, seq) if save_images or save_videos else None
         logger.info('start seq: {}'.format(seq))
@@ -111,9 +110,8 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
         result_filename = os.path.join(result_root, '{}.txt'.format(seq))
         meta_info = open(os.path.join(data_root, seq, 'seqinfo.ini')).read()
         frame_rate = int(meta_info[meta_info.find('frameRate') + 10:meta_info.find('\nseqLength')])
-        nf, ta, tc,det_result = eval_seq(opt, dataloader, data_type, result_filename,
+        nf, ta, tc= eval_seq(opt, dataloader, data_type, result_filename,
                               save_dir=output_dir, show_image=show_image, frame_rate=frame_rate)
-        all_det_result[seq] = det_result
         n_frame += nf
         timer_avgs.append(ta)
         timer_calls.append(tc)
@@ -143,14 +141,12 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
     )
     print(strsummary)
     import json
-    f = open(osp.join(data_root,"det_result.json"),'w')
-    f.write(json.dump(all_det_result))
     f.close()
     Evaluator.save_summary(summary, os.path.join(result_root, 'summary_{}.xlsx'.format(exp_name)))
 
 
 if __name__ == '__main__':
-    torch.cuda.set_device(2)
+    torch.cuda.set_device(0)
     opt = opts().init()
 
     if not opt.val_mot16:
@@ -202,7 +198,7 @@ if __name__ == '__main__':
                       MOT17-08-SDP
                       MOT17-12-SDP
                       MOT17-14-SDP'''
-        data_root = os.path.join(opt.data_dir, 'MOT17/images/test')
+        data_root = os.path.join(opt.data_dir, 'MOT17/test')
     if opt.val_mot17:
         seqs_str = '''MOT17-02-SDP
                       MOT17-04-SDP
@@ -211,7 +207,7 @@ if __name__ == '__main__':
                       MOT17-10-SDP
                       MOT17-11-SDP
                       MOT17-13-SDP'''
-        data_root = os.path.join(opt.data_dir, 'MOT17/images/train')
+        data_root = os.path.join(opt.data_dir, 'MOT17/train')
     if opt.val_mot15:
         seqs_str = '''Venice-2
                       KITTI-13
