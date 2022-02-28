@@ -201,6 +201,7 @@ class JDETracker(object):
         self.matrixs = []
         self.down_matrix = np.matrix(np.eye(3))
         self.window_matrix = 0
+        self.last_img = None
 
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
@@ -397,7 +398,29 @@ class JDETracker(object):
             out.append((tlbr,strack.track_id))
         return out
 
-    def get_two_img_map_matrix(self,img, rescale_ratio):
+
+    def compute_mapped_tlbr(self,tlbr,mat):
+        tl = np.matrix(np.hstack([tlbr[:2], np.ones(1)]))
+        tl = tl * mat
+        tl = np.squeeze(np.array(tl))[:-1]
+        tlbr[:2] = tl
+        br = np.matrix(np.hstack([tlbr[2:], np.ones(1)]))
+        br = br * mat
+        br = np.squeeze(np.array(br))[:-1]
+        tlbr[2:] = br
+        return tlbr
+    def compute_mapped_track(self,strack,mat):
+        mean_xyah = strack.mean.copy()
+        xy = np.matrix(np.hstack([mean_xyah[:2], np.ones(1)]))
+        xy = xy * mat
+        xy = np.squeeze(np.array(xy))[:-1]
+        mean_xyah[:2] = xy
+        vxy = np.matrix(np.hstack([mean_xyah[4:6], 0]))
+        vxy = vxy * mat
+        vxy = np.squeeze(np.array(vxy))[:-1]
+        mean_xyah[4:6] = vxy
+        strack.mean = mean_xyah
+    def orb_map_matrix(self,img,rescale_ratio):
         def get_map_matrix(src_points, dist_points):
             N = src_points.shape[0]
             src_points = np.hstack([np.matrix(src_points.copy()), np.ones((N, 1))])  # shape [N,3]
@@ -430,40 +453,58 @@ class JDETracker(object):
             pt2s = np.array(pt2s)
 
             map_matrix = get_map_matrix(pt1s, pt2s)
-            left_mat = np.matrix(np.eye(3))
-            left_mat[0, 0] = rescale_ratio
-            left_mat[1, 1] = rescale_ratio
-            right_mat = np.linalg.inv(left_mat)
+            left_mat = rescale_ratio * np.matrix(np.eye(3))
+            right_mat = (1/rescale_ratio) * np.matrix(np.eye(3))
+            left_mat[2, 2] = 1
+            right_mat[2, 2] = 1
             map_matrix = left_mat * map_matrix * right_mat
         else:
             map_matrix = np.eye(3)
-
         self.last_detect = (kp2, des2)
+        return map_matrix
+    def ecc_map_matrix(self,img,rescale_ratio):
+        # Convert images to grayscale
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if self.last_img is None:
+            self.last_img = img
+            return np.matrix(np.eye(3))
+        # Define the motion model
+        warp_mode = cv2.MOTION_TRANSLATION
+
+        # Define 2x3 or 3x3 matrices and initialize the matrix to identity
+        if warp_mode == cv2.MOTION_HOMOGRAPHY:
+            warp_matrix = np.eye(3, 3, dtype=np.float32)
+        else:
+            warp_matrix = np.eye(2, 3, dtype=np.float32)
+
+        # Specify the number of iterations.
+        number_of_iterations = 10;
+
+        # Specify the threshold of the increment
+        # in the correlation coefficient between two iterations
+        termination_eps = 1e-2;
+
+        # Define termination criteria
+        criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, number_of_iterations, termination_eps)
+
+        # Run the ECC algorithm. The results are stored in warp_matrix.
+        _,map_matrix = cv2.findTransformECC(self.last_img, img, warp_matrix, warp_mode, criteria)
+
+        map_matrix = np.matrix(np.vstack([map_matrix, np.array([0, 0, 1])]).T)
+        # print(warp_matrix)
+        self.last_img = img
+        left_mat = rescale_ratio * np.matrix(np.eye(3))
+        right_mat = (1 / rescale_ratio) * np.matrix(np.eye(3))
+        left_mat[2, 2] = 1
+        right_mat[2, 2] = 1
+        return left_mat * map_matrix * right_mat
+    def get_two_img_map_matrix(self,img, rescale_ratio):
+        map_matrix = self.ecc_map_matrix(img,rescale_ratio)
+        # map_matrix = self.orb_map_matrix(img,rescale_ratio)
         self.map_matrix = self.map_matrix * map_matrix
         self.matrixs.append(self.map_matrix)
         self.down_matrix = self.down_matrix * self.matrixs[max(-self.window_matrix - 1,-len(self.matrixs))]
         return map_matrix
-    def compute_mapped_tlbr(self,tlbr,mat):
-        tl = np.matrix(np.hstack([tlbr[:2], np.ones(1)]))
-        tl = tl * mat
-        tl = np.squeeze(np.array(tl))[:-1]
-        tlbr[:2] = tl
-        br = np.matrix(np.hstack([tlbr[2:], np.ones(1)]))
-        br = br * mat
-        br = np.squeeze(np.array(br))[:-1]
-        tlbr[2:] = br
-        return tlbr
-    def compute_mapped_track(self,strack,mat):
-        mean_xyah = strack.mean.copy()
-        xy = np.matrix(np.hstack([mean_xyah[:2], np.ones(1)]))
-        xy = xy * mat
-        xy = np.squeeze(np.array(xy))[:-1]
-        mean_xyah[:2] = xy
-        vxy = np.matrix(np.hstack([mean_xyah[4:6], 0]))
-        vxy = vxy * mat
-        vxy = np.squeeze(np.array(vxy))[:-1]
-        mean_xyah[4:6] = vxy
-        strack.mean = mean_xyah
     # def insert_frame_lost_track(self,):
 def joint_stracks(tlista, tlistb):
     exists = {}
