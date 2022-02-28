@@ -67,8 +67,8 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
         online_ids = []
         #online_scores = []
         for t in online_targets:
-            tlwh = t.tlwh
-            tid = t.track_id
+            tlwh = t[0]
+            tid = t[1]
             vertical = tlwh[2] / tlwh[3] > 1.6
             if tlwh[2] * tlwh[3] > opt.min_box_area and not vertical:
                 online_tlwhs.append(tlwh)
@@ -141,7 +141,6 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
     )
     print(strsummary)
     import json
-    f.close()
     Evaluator.save_summary(summary, os.path.join(result_root, 'summary_{}.xlsx'.format(exp_name)))
 
 
@@ -207,6 +206,9 @@ if __name__ == '__main__':
                       MOT17-10-SDP
                       MOT17-11-SDP
                       MOT17-13-SDP'''
+        # seqs_str = '''
+        #               MOT17-05-SDP
+        #               '''
         data_root = os.path.join(opt.data_dir, 'MOT17/train')
     if opt.val_mot15:
         seqs_str = '''Venice-2

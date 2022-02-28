@@ -17,6 +17,7 @@ from ..tracking_utils.log import logger
 from ..tracking_utils.utils import *
 from ..utils.image import get_affine_transform
 from ..utils.post_process import ctdet_post_process
+from lib.datasets.dataset.jde import letterbox
 from ..tracker import matching
 
 from .basetrack import BaseTrack, TrackState
@@ -194,6 +195,13 @@ class JDETracker(object):
 
         self.kalman_filter = KalmanFilter()
 
+        """CMA Module compent"""
+        self.last_detect = None
+        self.map_matrix = np.matrix(np.eye(3))
+        self.matrixs = []
+        self.down_matrix = np.matrix(np.eye(3))
+        self.window_matrix = 0
+
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
         dets = dets.reshape(1, -1, dets.shape[2])
@@ -257,8 +265,10 @@ class JDETracker(object):
         dets = dets[remain_inds]
         id_feature = id_feature[remain_inds]
 
+
         # vis
         '''
+        _, ratio, padw, padh = letterbox(img0)
         for i in range(0, dets.shape[0]):
             bbox = dets[i][0:4]
             cv2.rectangle(img0, (bbox[0], bbox[1]),
@@ -266,15 +276,21 @@ class JDETracker(object):
                           (0, 255, 0), 2)
         cv2.imshow('dets', img0)
         cv2.waitKey(0)
+        cv2.destroyAllWindows()
         id0 = id0-1
         '''
 
-        if len(dets) > 0:
-            '''Detections'''
-            detections = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, 30) for
-                          (tlbrs, f) in zip(dets[:, :5], id_feature)]
-        else:
-            detections = []
+        """compute the map matrix"""
+        rescale_ratio = 0.5
+        img0 = cv2.resize(img0, None, None, rescale_ratio, rescale_ratio)
+        map_matrix = self.get_two_img_map_matrix(img0, rescale_ratio)
+        inv_map_matrix = np.linalg.inv(np.linalg.inv(self.matrixs[max(-self.window_matrix - 1,-len(self.matrixs))])*self.map_matrix)
+        detections = []
+        for i in range(len(dets)):
+            tlbr = self.compute_mapped_tlbr(dets[i, :4],inv_map_matrix)
+            detections.append(STrack(STrack.tlbr_to_tlwh(tlbr[:4]), dets[i][4], id_feature[i], 30))
+
+
 
         ''' Add newly detected tracklets to tracked_stracks'''
         unconfirmed = []
@@ -291,6 +307,9 @@ class JDETracker(object):
         #for strack in strack_pool:
             #strack.predict()
         STrack.multi_predict(strack_pool)
+        for strack in strack_pool:
+            if len(self.matrixs) > self.window_matrix + 1:
+                self.compute_mapped_track(strack,np.linalg.inv(self.matrixs[-self.window_matrix-2])*self.matrixs[-self.window_matrix-1])
         dists = matching.embedding_distance(strack_pool, detections)
         #dists = matching.iou_distance(strack_pool, detections)
         dists = matching.fuse_motion(self.kalman_filter, dists, strack_pool, detections)
@@ -371,9 +390,81 @@ class JDETracker(object):
         logger.debug('Refind: {}'.format([track.track_id for track in refind_stracks]))
         logger.debug('Lost: {}'.format([track.track_id for track in lost_stracks]))
         logger.debug('Removed: {}'.format([track.track_id for track in removed_stracks]))
+        out = []
+        for strack in output_stracks:
+            tlbr = self.compute_mapped_tlbr(strack.tlbr,np.linalg.inv(self.matrixs[max(-self.window_matrix - 1,-len(self.matrixs))])*self.map_matrix)
+            tlbr[2:] = tlbr[2:] - tlbr[:2]
+            out.append((tlbr,strack.track_id))
+        return out
 
-        return output_stracks
+    def get_two_img_map_matrix(self,img, rescale_ratio):
+        def get_map_matrix(src_points, dist_points):
+            N = src_points.shape[0]
+            src_points = np.hstack([np.matrix(src_points.copy()), np.ones((N, 1))])  # shape [N,3]
+            dist_points = np.hstack([np.matrix(dist_points.copy()), np.ones((N, 1))])  # shape [N,3]
+            translation_matrix = np.linalg.inv(src_points.T * src_points) * src_points.T * dist_points
+            return translation_matrix
+        def orb_detet(img):
+            orb = cv2.ORB_create()
+            return orb.detectAndCompute(img, None)
+        def sift_detect(img):
+            # img = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+            sift = cv2.SIFT_create()
+            return sift.detectAndCompute(img,None)
+        # kp2,des2 = sift_detect(img)
+        kp2,des2 = orb_detet(img)
+        if self.last_detect is not None:
+            kp1, des1 = self.last_detect
 
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+            matches = bf.match(des1, des2)
+            goodMatch = sorted(matches, key=lambda x: x.distance)
+
+            # 增加一个维度
+            pt1s = []
+            pt2s = []
+            for match in goodMatch[:20]:
+                pt1s.append(kp1[match.queryIdx].pt)
+                pt2s.append(kp2[match.trainIdx].pt)
+            pt1s = np.array(pt1s)
+            pt2s = np.array(pt2s)
+
+            map_matrix = get_map_matrix(pt1s, pt2s)
+            left_mat = np.matrix(np.eye(3))
+            left_mat[0, 0] = rescale_ratio
+            left_mat[1, 1] = rescale_ratio
+            right_mat = np.linalg.inv(left_mat)
+            map_matrix = left_mat * map_matrix * right_mat
+        else:
+            map_matrix = np.eye(3)
+
+        self.last_detect = (kp2, des2)
+        self.map_matrix = self.map_matrix * map_matrix
+        self.matrixs.append(self.map_matrix)
+        self.down_matrix = self.down_matrix * self.matrixs[max(-self.window_matrix - 1,-len(self.matrixs))]
+        return map_matrix
+    def compute_mapped_tlbr(self,tlbr,mat):
+        tl = np.matrix(np.hstack([tlbr[:2], np.ones(1)]))
+        tl = tl * mat
+        tl = np.squeeze(np.array(tl))[:-1]
+        tlbr[:2] = tl
+        br = np.matrix(np.hstack([tlbr[2:], np.ones(1)]))
+        br = br * mat
+        br = np.squeeze(np.array(br))[:-1]
+        tlbr[2:] = br
+        return tlbr
+    def compute_mapped_track(self,strack,mat):
+        mean_xyah = strack.mean.copy()
+        xy = np.matrix(np.hstack([mean_xyah[:2], np.ones(1)]))
+        xy = xy * mat
+        xy = np.squeeze(np.array(xy))[:-1]
+        mean_xyah[:2] = xy
+        vxy = np.matrix(np.hstack([mean_xyah[4:6], 0]))
+        vxy = vxy * mat
+        vxy = np.squeeze(np.array(vxy))[:-1]
+        mean_xyah[4:6] = vxy
+        strack.mean = mean_xyah
+    # def insert_frame_lost_track(self,):
 def joint_stracks(tlista, tlistb):
     exists = {}
     res = []
