@@ -1,31 +1,28 @@
+import numpy as np
+from collections import deque
 import itertools
 import os
 import os.path as osp
 import time
-from collections import deque
-
-import cv2
-import numpy as np
 import torch
+import cv2
 import torch.nn.functional as F
-from ..models import *
-from ..models.decode import mot_decode
-from ..models.model import create_model, load_model
-from ..models.utils import _tranpose_and_gather_feat
-from ..tracking_utils.kalman_filter import KalmanFilter
-from ..tracking_utils.log import logger
-from ..tracking_utils.utils import *
-from ..utils.image import get_affine_transform
-from ..utils.post_process import ctdet_post_process
-from lib.datasets.dataset.jde import letterbox
-from ..tracker import matching
 
+from models.model import create_model, load_model
+from models.decode import mot_decode
+from tracking_utils.utils import *
+from tracking_utils.log import logger
+from tracking_utils.kalman_filter import KalmanFilter
+from models import *
+from tracker import matching
 from .basetrack import BaseTrack, TrackState
-
+from utils.post_process import ctdet_post_process
+from utils.image import get_affine_transform
+from models.utils import _tranpose_and_gather_feat
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
-    def __init__(self, tlwh, score, temp_feat, buffer_size=30):
+    def __init__(self, tlwh, score):
 
         # wait activate
         self._tlwh = np.asarray(tlwh, dtype=np.float)
@@ -35,21 +32,6 @@ class STrack(BaseTrack):
 
         self.score = score
         self.tracklet_len = 0
-
-        self.smooth_feat = None
-        self.update_features(temp_feat)
-        self.features = deque([], maxlen=buffer_size)
-        self.alpha = 0.9
-
-    def update_features(self, feat):
-        feat /= np.linalg.norm(feat)
-        self.curr_feat = feat
-        if self.smooth_feat is None:
-            self.smooth_feat = feat
-        else:
-            self.smooth_feat = self.alpha * self.smooth_feat + (1 - self.alpha) * feat
-        self.features.append(feat)
-        self.smooth_feat /= np.linalg.norm(self.smooth_feat)
 
     def predict(self):
         mean_state = self.mean.copy()
@@ -92,17 +74,15 @@ class STrack(BaseTrack):
             self.mean, self.covariance, self.tlwh_to_xyah(new_track.tlwh)
         )
 
-        self.update_features(new_track.curr_feat)
         self.tracklet_len = 0
         self.state = TrackState.Tracked
         self.is_activated = True
         self.frame_id = frame_id
         if new_id:
             self.track_id = self.next_id()
+        self.score = new_track.score
 
-
-
-    def update(self, new_track, frame_id, update_feature=True):
+    def update(self, new_track, frame_id):
         """
         Update a matched track
         :type new_track: STrack
@@ -120,13 +100,12 @@ class STrack(BaseTrack):
         self.is_activated = True
 
         self.score = new_track.score
-        if update_feature:
-            self.update_features(new_track.curr_feat)
 
         self.last_track_frame_id = frame_id
         self.last_track_tlbr = self.tlbr
 
     @property
+    # @jit(nopython=True)
     def tlwh(self):
         """Get current position in bounding box format `(top left x, top left y,
                 width, height)`.
@@ -139,6 +118,7 @@ class STrack(BaseTrack):
         return ret
 
     @property
+    # @jit(nopython=True)
     def tlbr(self):
         """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
         `(top left, bottom right)`.
@@ -148,6 +128,7 @@ class STrack(BaseTrack):
         return ret
 
     @staticmethod
+    # @jit(nopython=True)
     def tlwh_to_xyah(tlwh):
         """Convert bounding box to format `(center x, center y, aspect ratio,
         height)`, where the aspect ratio is `width / height`.
@@ -161,12 +142,14 @@ class STrack(BaseTrack):
         return self.tlwh_to_xyah(self.tlwh)
 
     @staticmethod
+    # @jit(nopython=True)
     def tlbr_to_tlwh(tlbr):
         ret = np.asarray(tlbr).copy()
         ret[2:] -= ret[:2]
         return ret
 
     @staticmethod
+    # @jit(nopython=True)
     def tlwh_to_tlbr(tlwh):
         ret = np.asarray(tlwh).copy()
         ret[2:] += ret[:2]
@@ -174,13 +157,9 @@ class STrack(BaseTrack):
 
     def __repr__(self):
         return 'OT_{}_({}-{})'.format(self.track_id, self.start_frame, self.end_frame)
-    def mark_lost(self,id,tlbr):
-        super().mark_lost()
 
 
-
-
-class JDETracker(object):
+class BYTETracker(object):
     def __init__(self, opt, frame_rate=30):
         self.opt = opt
         if opt.gpus[0] >= 0:
@@ -198,7 +177,8 @@ class JDETracker(object):
         self.removed_stracks = []  # type: list[STrack]
 
         self.frame_id = 0
-        self.det_thresh = opt.conf_thres
+        #self.det_thresh = opt.conf_thres
+        self.det_thresh = opt.conf_thres + 0.1
         self.buffer_size = int(frame_rate / 30.0 * opt.track_buffer)
         self.max_time_lost = self.buffer_size
         self.max_per_image = opt.K
@@ -206,6 +186,7 @@ class JDETracker(object):
         self.std = np.array(opt.std, dtype=np.float32).reshape(1, 1, 3)
 
         self.kalman_filter = KalmanFilter()
+
 
         """CMA Module compent"""
         self.last_detect = None
@@ -216,6 +197,7 @@ class JDETracker(object):
 
         """Insert Module compent"""
         self.max_num_insframe = 10
+
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
         dets = dets.reshape(1, -1, dets.shape[2])
@@ -264,46 +246,34 @@ class JDETracker(object):
             output = self.model(im_blob)[-1]
             hm = output['hm'].sigmoid_()
             wh = output['wh']
-            id_feature = output['id']
-            id_feature = F.normalize(id_feature, dim=1)
 
             reg = output['reg'] if self.opt.reg_offset else None
             dets, inds = mot_decode(hm, wh, reg=reg, ltrb=self.opt.ltrb, K=self.opt.K)
-            id_feature = _tranpose_and_gather_feat(id_feature, inds)
-            id_feature = id_feature.squeeze(0)
-            id_feature = id_feature.cpu().numpy()
-
-        dets = self.post_process(dets, meta)
-        dets = self.merge_outputs([dets])[1]
-        remain_inds = dets[:, 4] > self.opt.conf_thres
-        dets = dets[remain_inds]
-        id_feature = id_feature[remain_inds]
-
-
-        # vis
-        '''
-        _, ratio, padw, padh = letterbox(img0)
-        for i in range(0, dets.shape[0]):
-            bbox = dets[i][0:4]
-            cv2.rectangle(img0, (bbox[0], bbox[1]),
-                          (bbox[2], bbox[3]),
-                          (0, 255, 0), 2)
-        cv2.imshow('dets', img0)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        id0 = id0-1
-        '''
 
         """compute the map matrix"""
         rescale_ratio = 0.25
         img0 = cv2.resize(img0, None, None, rescale_ratio, rescale_ratio)
         self.get_two_img_map_matrix(img0, rescale_ratio)
-        inv_map_matrix = np.linalg.inv(np.linalg.inv(self.matrixs[max(-self.window_matrix - 1,-len(self.matrixs))])*self.map_matrix)
-        detections = []
-        for i in range(len(dets)):
-            tlbr = self.compute_mapped_tlbr(dets[i, :4],inv_map_matrix)
-            detections.append(STrack(STrack.tlbr_to_tlwh(tlbr[:4]), dets[i][4], id_feature[i], 30))
+        inv_map_matrix = np.linalg.inv(
+            np.linalg.inv(self.matrixs[max(-self.window_matrix - 1, -len(self.matrixs))]) * self.map_matrix)
 
+        dets = self.post_process(dets, meta)
+        dets = self.merge_outputs([dets])[1]
+        remain_inds = dets[:, 4] > self.opt.conf_thres
+        inds_low = dets[:, 4] > 0.2
+        inds_high = dets[:, 4] < self.opt.conf_thres
+        inds_second = np.logical_and(inds_low, inds_high)
+        dets_second = dets[inds_second]
+        dets = dets[remain_inds]
+
+        detections = []
+        if len(dets) > 0:
+            '''Detections'''
+            for i in range(len(dets)):
+                tlbr = self.compute_mapped_tlbr(dets[i, :4], inv_map_matrix)
+                detections.append(STrack(STrack.tlbr_to_tlwh(tlbr[:4]), dets[i][4]))
+        else:
+            detections = []
 
         ''' Add newly detected tracklets to tracked_stracks'''
         unconfirmed = []
@@ -314,16 +284,17 @@ class JDETracker(object):
             else:
                 tracked_stracks.append(track)
 
-        ''' Step 2: First association, with embedding'''
+        ''' Step 2: First association, with IOU'''
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
+        # Predict the current location with KF
         STrack.multi_predict(strack_pool)
         for strack in strack_pool:
             if len(self.matrixs) > self.window_matrix + 1:
-                self.compute_mapped_track(strack,np.linalg.inv(self.matrixs[-self.window_matrix-2])*self.matrixs[-self.window_matrix-1])
-        dists = matching.embedding_distance(strack_pool, detections)
-        dists = matching.fuse_motion(self.kalman_filter, dists, strack_pool, detections)
+                self.compute_mapped_track(strack, np.linalg.inv(self.matrixs[-self.window_matrix - 2]) * self.matrixs[
+                    -self.window_matrix - 1])
 
-        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.4)
+        dists = matching.iou_distance(strack_pool, detections)
+        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.8)
 
         for itracked, idet in matches:
             track = strack_pool[itracked]
@@ -335,15 +306,19 @@ class JDETracker(object):
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
 
-        ''' Step 3: Second association, with IOU'''
-        detections = [detections[i] for i in u_detection]
-        r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked or self.frame_id - strack_pool[i].last_track_frame_id < self.max_num_insframe]
-        dists = matching.iou_distance(r_tracked_stracks, detections)
-        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.5)
-
+        # association the untrack to the low score detections
+        if len(dets_second) > 0:
+            '''Detections'''
+            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4]) for
+                                 tlbrs in dets_second[:, :5]]
+        else:
+            detections_second = []
+        r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
+        dists = matching.iou_distance(r_tracked_stracks, detections_second)
+        matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.4)
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
-            det = detections[idet]
+            det = detections_second[idet]
             if track.state == TrackState.Tracked:
                 track.update(det, self.frame_id)
                 activated_starcks.append(track)
@@ -354,7 +329,7 @@ class JDETracker(object):
         for it in u_track:
             track = r_tracked_stracks[it]
             if not track.state == TrackState.Lost:
-                track.mark_lost(self.frame_id,track.tlbr)
+                track.mark_lost()
                 lost_stracks.append(track)
 
         '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
@@ -392,6 +367,7 @@ class JDETracker(object):
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
+        #self.tracked_stracks = remove_fp_stracks(self.tracked_stracks)
         # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
 
@@ -402,10 +378,12 @@ class JDETracker(object):
         logger.debug('Removed: {}'.format([track.track_id for track in removed_stracks]))
         out = []
         for strack in output_stracks:
-            tlbr = self.compute_mapped_tlbr(strack.tlbr,np.linalg.inv(self.matrixs[max(-self.window_matrix - 1,-len(self.matrixs))])*self.map_matrix)
+            tlbr = self.compute_mapped_tlbr(strack.tlbr, np.linalg.inv(
+                self.matrixs[max(-self.window_matrix - 1, -len(self.matrixs))]) * self.map_matrix)
             tlbr[2:] = tlbr[2:] - tlbr[:2]
-            out.append((tlbr,strack.track_id))
+            out.append((tlbr, strack.track_id))
         return out,self.insert_frame_lost_track(refind_stracks)
+
 
 
     def compute_mapped_tlbr(self,tlbr,mat):
@@ -575,3 +553,15 @@ def remove_duplicate_stracks(stracksa, stracksb):
     resa = [t for i, t in enumerate(stracksa) if not i in dupa]
     resb = [t for i, t in enumerate(stracksb) if not i in dupb]
     return resa, resb
+
+
+def remove_fp_stracks(stracksa, n_frame=10):
+    remain = []
+    for t in stracksa:
+        score_5 = t.score_list[-n_frame:]
+        score_5 = np.array(score_5, dtype=np.float32)
+        index = score_5 < 0.45
+        num = np.sum(index)
+        if num < n_frame:
+            remain.append(t)
+    return remain
