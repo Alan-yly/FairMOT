@@ -62,7 +62,7 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
         # run tracking
         timer.tic()
         blob = torch.from_numpy(img).cuda().unsqueeze(0)
-        online_targets = tracker.update(blob, img0)
+        online_targets,insert_frame = tracker.update(blob, img0)
         online_tlwhs = []
         online_ids = []
         #online_scores = []
@@ -77,6 +77,12 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
         timer.toc()
         # save results
         results.append((frame_id + 1, online_tlwhs, online_ids))
+        for track_id in insert_frame.keys():
+            frames = insert_frame[track_id]
+            for frame in frames:
+                tlwh,id = frame
+                results[id-1][1].append(tlwh)
+                results[id-1][2].append(track_id)
         #results.append((frame_id + 1, online_tlwhs, online_ids, online_scores))
         if show_image or save_dir is not None:
             online_im = vis.plot_tracking(img0, online_tlwhs, online_ids, frame_id=frame_id,
@@ -147,7 +153,6 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
 if __name__ == '__main__':
     torch.cuda.set_device(0)
     opt = opts().init()
-
     if not opt.val_mot16:
         seqs_str = '''KITTI-13
                       KITTI-17
