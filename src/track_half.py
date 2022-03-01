@@ -11,7 +11,7 @@ import argparse
 import motmetrics as mm
 import numpy as np
 import torch
-from lib.tracker.multitracker import JDETracker
+from lib.tracker.tracker import JDETracker
 from lib.tracker.byte_tracker import BYTETracker
 from lib.tracking_utils import visualization as vis
 from lib.tracking_utils.log import logger
@@ -48,7 +48,7 @@ def write_results(filename, results, data_type):
 def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_image=True, frame_rate=30):
     if save_dir:
         mkdir_if_missing(save_dir)
-    tracker = BYTETracker(opt, frame_rate=frame_rate)
+    tracker = JDETracker(opt, frame_rate=frame_rate)
     timer = Timer()
     results = []
     len_all = len(dataloader)
