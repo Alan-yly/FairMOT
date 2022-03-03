@@ -295,7 +295,7 @@ class JDETracker(object):
             np.linalg.inv(self.matrixs[max(-self.window_matrix - 1, -len(self.matrixs))]) * self.map_matrix)
         for i in range(len(dets)):
             tlbr = self.compute_mapped_tlbr(dets[i, :4], inv_map_matrix)
-            dets[i][:4] = tlbr
+            dets[i,:4] = tlbr
         """compute the map matrix"""
 
 
@@ -343,12 +343,10 @@ class JDETracker(object):
             else:
                 tracked_stracks.append(track)
 
-        ''' Step 2: First association, with embedding'''
+
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
-
-
         """compute the map matrix"""
         for strack in strack_pool:
             if len(self.matrixs) > self.window_matrix + 1:
@@ -357,14 +355,16 @@ class JDETracker(object):
         """compute the map matrix"""
 
 
-        dists = matching.embedding_distance(strack_pool, detections)
-        #dists = matching.fuse_iou(dists, strack_pool, detections)
-        #dists = matching.iou_distance(strack_pool, detections)
-        dists = matching.fuse_motion(self.kalman_filter, dists, strack_pool, detections)
+
+        ''' Step 2: First association, with embedding'''
+        dists = matching.embedding_distance(tracked_stracks, detections)
+        ioudists = matching.iou_distance(tracked_stracks,detections)
+        dists[ioudists>0.8] = np.inf
+        dists = matching.fuse_motion(self.kalman_filter, dists, tracked_stracks, detections)
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.4)
 
         for itracked, idet in matches:
-            track = strack_pool[itracked]
+            track = tracked_stracks[itracked]
             det = detections[idet]
             if track.state == TrackState.Tracked:
                 track.update(detections[idet], self.frame_id)
@@ -372,10 +372,29 @@ class JDETracker(object):
             else:
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
+        ''' Step 2: First association, with embedding'''
+
+        ''' Step 4: Second association, with IOU'''
+        detections = [detections[i] for i in u_detection]
+        dists = matching.embedding_distance(self.lost_stracks, detections)
+        ioudists = matching.iou_distance(self.lost_stracks, detections)
+        dists[ioudists > 0.8] = np.inf
+        matches, _, u_detection = matching.linear_assignment(dists, thresh=0.4)
+
+        for itracked, idet in matches:
+            track = self.lost_stracks[itracked]
+            det = detections[idet]
+            if track.state == TrackState.Tracked:
+                track.update(detections[idet], self.frame_id)
+                activated_starcks.append(track)
+            else:
+                track.re_activate(det, self.frame_id, new_id=False)
+                refind_stracks.append(track)
+        ''' Step 4: Second association, with IOU'''
 
         ''' Step 3: Second association, with IOU'''
         detections = [detections[i] for i in u_detection]
-        r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
+        r_tracked_stracks = [tracked_stracks[i] for i in u_track if tracked_stracks[i].state == TrackState.Tracked]
         dists = matching.iou_distance(r_tracked_stracks, detections)
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.5)
 
@@ -388,9 +407,13 @@ class JDETracker(object):
             else:
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
+        ''' Step 3: Second association, with IOU'''
 
-        # association the untrack to the low score detections
 
+
+
+
+        ''' Step 5: association whit IOU on low score detection'''
         second_tracked_stracks = [r_tracked_stracks[i] for i in u_track if r_tracked_stracks[i].state == TrackState.Tracked]
         dists = matching.iou_distance(second_tracked_stracks, detections_second)
         matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.4)
@@ -403,6 +426,8 @@ class JDETracker(object):
             else:
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
+        ''' Step 5: association whit IOU on low score detection'''
+
 
         for it in u_track:
             #track = r_tracked_stracks[it]
