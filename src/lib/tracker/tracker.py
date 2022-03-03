@@ -7,7 +7,6 @@ import time
 import torch
 import cv2
 import torch.nn.functional as F
-
 from models.model import create_model, load_model
 from models.decode import mot_decode
 from tracking_utils.utils import *
@@ -16,6 +15,7 @@ from tracking_utils.kalman_filter import KalmanFilter
 from models import *
 from tracker import matching
 from tracker import occlusion_map
+from tracker import MAA
 from .basetrack import BaseTrack, TrackState
 from utils.post_process import ctdet_post_process
 from utils.image import get_affine_transform
@@ -177,7 +177,9 @@ class STrack(BaseTrack):
         ret = np.asarray(tlwh).copy()
         ret[2:] += ret[:2]
         return ret
-
+    # def mark_lost(self):
+    #     super().mark_lost()
+    #     self.mean[-1] = 0
     def __repr__(self):
         return 'OT_{}_({}-{})'.format(self.track_id, self.start_frame, self.end_frame)
 
@@ -357,87 +359,41 @@ class JDETracker(object):
 
 
         ''' Step 2: First association, with embedding'''
-        dists = matching.embedding_distance(tracked_stracks, detections)
-        ioudists = matching.iou_distance(tracked_stracks,detections)
-        dists[ioudists>0.8] = np.inf
-        dists = matching.fuse_motion(self.kalman_filter, dists, tracked_stracks, detections)
-        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.4)
-
-        for itracked, idet in matches:
-            track = tracked_stracks[itracked]
-            det = detections[idet]
-            if track.state == TrackState.Tracked:
-                track.update(detections[idet], self.frame_id)
-                activated_starcks.append(track)
-            else:
-                track.re_activate(det, self.frame_id, new_id=False)
-                refind_stracks.append(track)
-        ''' Step 2: First association, with embedding'''
-
-        ''' Step 4: Second association, with IOU'''
-        detections = [detections[i] for i in u_detection]
-        dists = matching.embedding_distance(self.lost_stracks, detections)
-        ioudists = matching.iou_distance(self.lost_stracks, detections)
-        dists[ioudists > 0.8] = np.inf
-        matches, _, u_detection = matching.linear_assignment(dists, thresh=0.4)
-
-        for itracked, idet in matches:
-            track = self.lost_stracks[itracked]
-            det = detections[idet]
-            if track.state == TrackState.Tracked:
-                track.update(detections[idet], self.frame_id)
-                activated_starcks.append(track)
-            else:
-                track.re_activate(det, self.frame_id, new_id=False)
-                refind_stracks.append(track)
-        ''' Step 4: Second association, with IOU'''
-
-        ''' Step 3: Second association, with IOU'''
-        detections = [detections[i] for i in u_detection]
-        r_tracked_stracks = [tracked_stracks[i] for i in u_track if tracked_stracks[i].state == TrackState.Tracked]
-        dists = matching.iou_distance(r_tracked_stracks, detections)
-        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.5)
-
-        for itracked, idet in matches:
-            track = r_tracked_stracks[itracked]
-            det = detections[idet]
-            if track.state == TrackState.Tracked:
-                track.update(det, self.frame_id)
-                activated_starcks.append(track)
-            else:
-                track.re_activate(det, self.frame_id, new_id=False)
-                refind_stracks.append(track)
-        ''' Step 3: Second association, with IOU'''
+        r_tracked_stracks,detections = self.match(tracked_stracks,detections,'embedding',0.4,activated_starcks,refind_stracks)
 
 
-
-
+        ''' Step 3: Second association, with embedding on lost'''
+        _, detections = self.match(self.lost_stracks, detections, 'embedding', 0.4, activated_starcks,
+                                                   refind_stracks)
+        # dists = matching.embedding_distance(self.lost_stracks, detections)
+        # ioudists = matching.iou_distance(self.lost_stracks, detections)
+        # dists[ioudists > 0.8] = np.inf
+        # matches, _, u_detection = matching.linear_assignment(dists, thresh=0.4)
+        #
+        # for itracked, idet in matches:
+        #     track = self.lost_stracks[itracked]
+        #     det = detections[idet]
+        #     if track.state == TrackState.Tracked:
+        #         track.update(detections[idet], self.frame_id)
+        #         activated_starcks.append(track)
+        #     else:
+        #         track.re_activate(det, self.frame_id, new_id=False)
+        #         refind_stracks.append(track)
+        ''' Step 4: Third association, with IOU'''
+        second_tracked_stracks,detections = self.match(r_tracked_stracks,detections,'Iou',0.5,activated_starcks,refind_stracks)
 
         ''' Step 5: association whit IOU on low score detection'''
-        second_tracked_stracks = [r_tracked_stracks[i] for i in u_track if r_tracked_stracks[i].state == TrackState.Tracked]
-        dists = matching.iou_distance(second_tracked_stracks, detections_second)
-        matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.4)
-        for itracked, idet in matches:
-            track = second_tracked_stracks[itracked]
-            det = detections_second[idet]
-            if track.state == TrackState.Tracked:
-                track.update(det, self.frame_id)
-                activated_starcks.append(track)
-            else:
-                track.re_activate(det, self.frame_id, new_id=False)
-                refind_stracks.append(track)
-        ''' Step 5: association whit IOU on low score detection'''
+        second_tracked_stracks, _ = self.match(second_tracked_stracks, detections_second, 'Iou', 0.4, activated_starcks,
+                                                        refind_stracks)
 
 
-        for it in u_track:
-            #track = r_tracked_stracks[it]
-            track = second_tracked_stracks[it]
+        for track in second_tracked_stracks:
             if not track.state == TrackState.Lost:
                 track.mark_lost()
                 lost_stracks.append(track)
 
         '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
-        detections = [detections[i] for i in u_detection]
+        # detections = [detections[i] for i in u_detection]
         dists = matching.iou_distance(unconfirmed, detections)
         matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
         for itracked, idet in matches:
@@ -493,7 +449,6 @@ class JDETracker(object):
 
 
         return out, self.insert_frame_lost_track(refind_stracks)
-
 
     def compute_mapped_tlbr(self,tlbr,mat):
         tl = np.matrix(np.hstack([tlbr[:2], np.ones(1)]))
@@ -622,8 +577,37 @@ class JDETracker(object):
             strack.last_track_frame_id = self.frame_id
             strack.last_track_tlbr = strack.tlbr
         return  insert_frame
-
-
+    def match(self,tracks,dets,feature,threshold,activated_starcks,refind_stracks):
+        if feature == 'Iou':
+            dists = matching.iou_distance(tracks, dets)
+        elif feature == 'embedding':
+            dists = matching.embedding_distance(tracks, dets)
+            ioudists = matching.iou_distance(tracks, dets)
+            dists[ioudists > 0.8] = np.inf
+            dists = matching.fuse_motion(self.kalman_filter, dists, tracks, dets)
+        else:
+            exit()
+            return
+        '''MAA'''
+        maa = MAA.MAA(dists, 0.1, threshold)
+        mats = maa.search_all()
+        delete_dets = []
+        for mat in mats[:-1]:
+            dists[mat[0]][:, mat[1]] = np.inf
+            if mat[0] > mat[1]:
+                delete_dets += mat[1]
+        '''MAA'''
+        matches, u_track, u_detection = matching.linear_assignment(dists, thresh=threshold)
+        for itracked, idet in matches:
+            track = tracks[itracked]
+            det = dets[idet]
+            if track.state == TrackState.Tracked:
+                track.update(dets[idet], self.frame_id)
+                activated_starcks.append(track)
+            else:
+                track.re_activate(det, self.frame_id, new_id=False)
+                refind_stracks.append(track)
+        return [tracks[i] for i in u_track],[dets[i] for i in u_detection if i not in delete_dets]
 def joint_stracks(tlista, tlistb):
     exists = {}
     res = []

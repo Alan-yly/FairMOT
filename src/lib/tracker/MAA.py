@@ -27,12 +27,11 @@ class MAA():
             return
         record[ind] = True
         if mode == 'Track':
-            print(ind,mat.shape)
             tmp = mat[ind]
             if np.sum(tmp[tmp < mindist]-min(tmp) < delta) <= 1:
                 return
             for i,x in enumerate(tmp):
-                if x - min(tmp) < delta and x < mindist:
+                if x < mindist and x - min(tmp) < delta:
                     MAA.search('Det',mat,groups,len(mat)+i,delta,mindist,record)
                     groups.union(ind,len(mat)+i)
             return
@@ -41,14 +40,15 @@ class MAA():
             if np.sum(tmp[tmp < mindist] - min(tmp) < delta) <= 1:
                 return
             for i,x in enumerate(tmp):
-                if x - min(tmp) < delta and x < mindist:
+                if x < mindist and x - min(tmp) < delta:
                     MAA.search('Track',mat,groups,i,delta,mindist,record)
                     groups.union(ind,i)
         else:
-            print("error!")
             exit()
             return
-    def serach_all(self):
+    def search_all(self):
+        if self.mat.shape[0]*self.mat.shape[1] == 0:
+            return []
         for i,_ in enumerate(self.record):
             if i < self.mat.shape[0]:
                 MAA.search('Track',self.mat,self.groups,i,self.delta,self.mindist,self.record)
@@ -82,16 +82,16 @@ class MAA():
         return mats
 
 
-mat = np.array(
-    [
-        [1,1,1,0.38,1,1,1,1],
-        [1,1,1,1,1,1,1,0.87],
-        [1,0.34,1,1,1,0.31,1,1],
-        [1,1,1,0.31,1,1,1,1],
-        [0.92,1,1,1,0.06,1,1,1],
-        [1,1,0.11,1,1,1,0.19,1],
-        [1,0.29,1,1,1,0.37,1,1]
-    ]
-)
-maa = MAA(mat,0.1,0.5,)
-print(maa.serach_all())
+# mat = np.array(
+#     [
+#         [1,1,1,0.38,1,1,1,1],
+#         [1,1,1,1,1,1,1,0.87],
+#         [1,0.34,1,1,1,0.31,1,1],
+#         [1,1,1,0.31,1,1,1,1],
+#         [0.92,1,1,1,0.06,1,1,1],
+#         [1,1,0.11,1,1,1,0.19,1],
+#         [1,0.29,1,1,1,0.37,1,1]
+#     ]
+# )
+# maa = MAA(mat,0.1,0.5,)
+# print(maa.serach_all())
