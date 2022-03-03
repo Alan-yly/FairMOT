@@ -1,7 +1,7 @@
 import numpy as np
 from tracker import matching
-M = 80
-N = 40
+M = 20
+N = 10
 def generate_graph(tracks):
     """
             note:this function may be used in train phase or inference phase,
@@ -18,8 +18,11 @@ def generate_graph(tracks):
         tlbr += [tlbr[1] - tlbr[0],tlbr[3]-tlbr[2]]
         return  tlbr
     sub_graphs = np.ones((len(tracks),M, N))
-
-    tracks.sort(key=lambda track: track.tlbr[3])
+    temp = []
+    for i in range(len(tracks)):
+        temp.append((tracks[i].tlbr[3],i))
+    temp.sort(key=lambda x: x[0])
+    tracks.sort(key = lambda track:track.tlbr[3])
     iou_dist_mat = 1 - matching.iou_distance(tracks, tracks)
     for i in range(len(tracks)):
         for j in range(i + 1, len(tracks)):
@@ -33,6 +36,22 @@ def generate_graph(tracks):
                 be_shelted_tblr = ()
                 for k in range(4):
                     be_shelted_tblr += (int(round((overlap_tblr[k] - be_shelted[k // 2 * 2]) / be_shelted[k // 2 + 4]
-                                                  * self.sub_graph_shape[k // 2])),)
+                                                  * (M,N)[k // 2])),)
                 sub_graphs[i, be_shelted_tblr[0]:be_shelted_tblr[1], be_shelted_tblr[2]:be_shelted_tblr[3]] = 0
+    for i in range(len(temp)):
+        while temp[i][1] != i:
+            y = temp[i][1]
+
+            t = tracks[y]
+            tracks[y] = tracks[i]
+            tracks[i] = t
+
+            t = sub_graphs[y]
+            sub_graphs[y] = sub_graphs[i]
+            sub_graphs[i] = t
+
+            t = temp[y]
+            temp[y] = temp[i]
+            temp[i] = t
+
     return sub_graphs

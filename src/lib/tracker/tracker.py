@@ -286,6 +286,7 @@ class JDETracker(object):
         inds_high = dets[:, 4] < self.opt.conf_thres
         inds_second = np.logical_and(inds_low, inds_high)
 
+
         """compute the map matrix"""
         rescale_ratio = 0.25
         img0 = cv2.resize(img0, None, None, rescale_ratio, rescale_ratio)
@@ -295,6 +296,8 @@ class JDETracker(object):
         for i in range(len(dets)):
             tlbr = self.compute_mapped_tlbr(dets[i, :4], inv_map_matrix)
             dets[i][:4] = tlbr
+        """compute the map matrix"""
+
 
 
         dets_second = dets[inds_second]
@@ -315,10 +318,7 @@ class JDETracker(object):
         else:
             detections = []
 
-        # graph = occlusion_map.generate_graph(detections)
-        # for i in range(graph.shape[0]-1,0,-1):
-        #     if np.mean(graph[i]) < 0.5:
-        #         detections_second.append(detections.pop(i))
+
 
         # vis
         '''
@@ -347,10 +347,16 @@ class JDETracker(object):
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
+
+
+        """compute the map matrix"""
         for strack in strack_pool:
             if len(self.matrixs) > self.window_matrix + 1:
                 self.compute_mapped_track(strack, np.linalg.inv(self.matrixs[-self.window_matrix - 2]) * self.matrixs[
                     -self.window_matrix - 1])
+        """compute the map matrix"""
+
+
         dists = matching.embedding_distance(strack_pool, detections)
         #dists = matching.fuse_iou(dists, strack_pool, detections)
         #dists = matching.iou_distance(strack_pool, detections)
@@ -450,12 +456,17 @@ class JDETracker(object):
         logger.debug('Lost: {}'.format([track.track_id for track in lost_stracks]))
         logger.debug('Removed: {}'.format([track.track_id for track in removed_stracks]))
 
+
+        """compute the map matrix"""
         out = []
         for strack in output_stracks:
             tlbr = self.compute_mapped_tlbr(strack.tlbr, np.linalg.inv(
                 self.matrixs[max(-self.window_matrix - 1, -len(self.matrixs))]) * self.map_matrix)
             tlbr[2:] = tlbr[2:] - tlbr[:2]
             out.append((tlbr, strack.track_id))
+        """compute the map matrix"""
+
+
         return out, self.insert_frame_lost_track(refind_stracks)
 
 
