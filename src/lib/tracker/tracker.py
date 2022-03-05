@@ -14,13 +14,13 @@ from tracking_utils.log import logger
 from tracking_utils.kalman_filter import KalmanFilter
 from models import *
 from tracker import matching
-from tracker import occlusion_map
+from tracker import det_feat_record
 from tracker import MAA
 from .basetrack import BaseTrack, TrackState
 from utils.post_process import ctdet_post_process
 from utils.image import get_affine_transform
 from models.utils import _tranpose_and_gather_feat
-
+from tracker import det_feat_record
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
     def __init__(self, tlwh, score, temp_feat, buffer_size=30):
@@ -222,6 +222,8 @@ class JDETracker(object):
         """Insert Module compent"""
         self.max_num_insframe = 10
 
+        '''recorder'''
+        self.recorder = None
 
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
@@ -267,27 +269,41 @@ class JDETracker(object):
                 'out_width': inp_width // self.opt.down_ratio}
 
         ''' Step 1: Network forward, get detections & embeddings'''
-        with torch.no_grad():
-            output = self.model(im_blob)[-1]
-            hm = output['hm'].sigmoid_()
-            wh = output['wh']
-            id_feature = output['id']
-            id_feature = F.normalize(id_feature, dim=1)
+        if self.recorder.mode == 'record':
+            with torch.no_grad():
+                output = self.model(im_blob)[-1]
+                hm = output['hm'].sigmoid_()
+                wh = output['wh']
+                id_feature = output['id']
+                id_feature = F.normalize(id_feature, dim=1)
 
-            reg = output['reg'] if self.opt.reg_offset else None
-            dets, inds = mot_decode(hm, wh, reg=reg, ltrb=self.opt.ltrb, K=self.opt.K)
-            id_feature = _tranpose_and_gather_feat(id_feature, inds)
-            id_feature = id_feature.squeeze(0)
-            id_feature = id_feature.cpu().numpy()
+                reg = output['reg'] if self.opt.reg_offset else None
+                dets, inds = mot_decode(hm, wh, reg=reg, ltrb=self.opt.ltrb, K=self.opt.K)
+                id_feature = _tranpose_and_gather_feat(id_feature, inds)
+                id_feature = id_feature.squeeze(0)
+                id_feature = id_feature.cpu().numpy()
 
-        dets = self.post_process(dets, meta)
-        dets = self.merge_outputs([dets])[1]
+            dets = self.post_process(dets, meta)
+            dets = self.merge_outputs([dets])[1]
 
-        remain_inds = dets[:, 4] > self.opt.conf_thres
-        inds_low = dets[:, 4] > 0.2
-        inds_high = dets[:, 4] < self.opt.conf_thres
-        inds_second = np.logical_and(inds_low, inds_high)
+            remain_inds = dets[:, 4] > self.opt.conf_thres
+            inds_low = dets[:, 4] > 0.2
+            inds_high = dets[:, 4] < self.opt.conf_thres
+            inds_second = np.logical_and(inds_low, inds_high)
 
+            dets_second = dets[inds_second]
+            id_feature_second = id_feature[inds_second]
+            dets = dets[remain_inds]
+            id_feature = id_feature[remain_inds]
+            '''record dets feats'''
+            self.recorder.record((dets.tolist(),id_feature.tolist()),(dets_second.tolist(),id_feature_second.tolist()))
+            '''record dets feats'''
+        elif self.recorder.mode == 'get':
+            a,b = self.recorder.get()
+            dets = np.array(a[0])
+            id_feature = np.array(a[1])
+            dets_second = np.array(b[0])
+            id_feature_second = np.array(b[1])
 
         """compute the map matrix"""
         rescale_ratio = 0.25
@@ -298,27 +314,26 @@ class JDETracker(object):
         for i in range(len(dets)):
             tlbr = self.compute_mapped_tlbr(dets[i, :4], inv_map_matrix)
             dets[i,:4] = tlbr
+        for i in range(len(dets_second)):
+            tlbr = self.compute_mapped_tlbr(dets_second[i, :4], inv_map_matrix)
+            dets_second[i,:4] = tlbr
         """compute the map matrix"""
 
 
-
-        dets_second = dets[inds_second]
-        id_feature_second = id_feature[inds_second]
-        if len(dets_second) > 0:
-            '''Detections'''
-            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, 30) for
-                          (tlbrs, f) in zip(dets_second[:, :5], id_feature_second)]
-        else:
-            detections_second = []
-
-        dets = dets[remain_inds]
-        id_feature = id_feature[remain_inds]
         if len(dets) > 0:
             '''Detections'''
             detections = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, 30) for
                           (tlbrs, f) in zip(dets[:, :5], id_feature)]
         else:
             detections = []
+
+        if len(dets_second) > 0:
+            '''Detections'''
+            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, 30) for
+                                 (tlbrs, f) in zip(dets_second[:, :5], id_feature_second)]
+        else:
+            detections_second = []
+
 
 
 
@@ -365,20 +380,7 @@ class JDETracker(object):
         ''' Step 3: Second association, with embedding on lost'''
         _, detections = self.match(self.lost_stracks, detections, 'embedding', 0.4, activated_starcks,
                                                    refind_stracks)
-        # dists = matching.embedding_distance(self.lost_stracks, detections)
-        # ioudists = matching.iou_distance(self.lost_stracks, detections)
-        # dists[ioudists > 0.8] = np.inf
-        # matches, _, u_detection = matching.linear_assignment(dists, thresh=0.4)
-        #
-        # for itracked, idet in matches:
-        #     track = self.lost_stracks[itracked]
-        #     det = detections[idet]
-        #     if track.state == TrackState.Tracked:
-        #         track.update(detections[idet], self.frame_id)
-        #         activated_starcks.append(track)
-        #     else:
-        #         track.re_activate(det, self.frame_id, new_id=False)
-        #         refind_stracks.append(track)
+
         ''' Step 4: Third association, with IOU'''
         second_tracked_stracks,detections = self.match(r_tracked_stracks,detections,'Iou',0.5,activated_starcks,refind_stracks)
 
@@ -550,8 +552,12 @@ class JDETracker(object):
         right_mat[2, 2] = 1
         return left_mat * map_matrix * right_mat
     def get_two_img_map_matrix(self,img, rescale_ratio):
-        map_matrix = self.ecc_map_matrix(img,rescale_ratio)
-        # map_matrix = self.orb_map_matrix(img,rescale_ratio)
+        if self.recorder.mode == 'record':
+            map_matrix = self.ecc_map_matrix(img,rescale_ratio)
+            self.recorder.record_mat(map_matrix.tolist())
+            # map_matrix = self.orb_map_matrix(img,rescale_ratio)
+        else:
+            map_matrix = np.matrix(self.recorder.get_mat())
         self.map_matrix = self.map_matrix * map_matrix
         self.matrixs.append(self.map_matrix)
         return map_matrix

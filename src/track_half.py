@@ -20,6 +20,7 @@ from lib.tracking_utils.evaluation import Evaluator
 from lib.datasets.dataset import jde as datasets
 
 from lib.tracking_utils.utils import mkdir_if_missing
+import lib.tracker.det_feat_record as det_feat_record
 from opts import opts
 
 
@@ -45,10 +46,11 @@ def write_results(filename, results, data_type):
     logger.info('save results to {}'.format(filename))
 
 
-def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_image=True, frame_rate=30):
+def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, show_image=True, frame_rate=30):
     if save_dir:
         mkdir_if_missing(save_dir)
     tracker = JDETracker(opt, frame_rate=frame_rate)
+    tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','get')
     timer = Timer()
     results = []
     len_all = len(dataloader)
@@ -117,7 +119,7 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
         result_filename = os.path.join(result_root, '{}.txt'.format(seq))
         meta_info = open(os.path.join(data_root, seq, 'seqinfo.ini')).read()
         frame_rate = int(meta_info[meta_info.find('frameRate') + 10:meta_info.find('\nseqLength')])
-        nf, ta, tc= eval_seq(opt, dataloader, data_type, result_filename,
+        nf, ta, tc= eval_seq(opt, dataloader, data_type, result_filename,seq,
                               save_dir=output_dir, show_image=show_image, frame_rate=frame_rate)
         n_frame += nf
         timer_avgs.append(ta)
