@@ -21,6 +21,7 @@ from lib.datasets.dataset import jde as datasets
 
 from lib.tracking_utils.utils import mkdir_if_missing
 import lib.tracker.det_feat_record as det_feat_record
+import lib.tracker.refined_track_vis as refined_track_vis
 from opts import opts
 
 
@@ -51,6 +52,8 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
         mkdir_if_missing(save_dir)
     tracker = JDETracker(opt, frame_rate=frame_rate)
     tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','get')
+    tracker.viser = refined_track_vis.losttrack_viser(os.path.join('/home/hust/yly/Dataset/MOT17/train',seq,'img1')
+                                                      ,os.path.join('/home/hust/yly/Dataset/MOT17/',seq+'-viser.json'),int(len(dataloader)/2)+1)
     timer = Timer()
     results = []
     len_all = len(dataloader)
@@ -215,7 +218,7 @@ if __name__ == '__main__':
                       MOT17-11-SDP
                       MOT17-13-SDP'''
         # seqs_str = '''
-        #               MOT17-02-SDP
+        #               MOT17-13-SDP
         #               '''
         data_root = os.path.join(opt.data_dir, 'MOT17/train')
     if opt.val_mot15:

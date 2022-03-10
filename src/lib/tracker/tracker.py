@@ -21,9 +21,10 @@ from utils.post_process import ctdet_post_process
 from utils.image import get_affine_transform
 from models.utils import _tranpose_and_gather_feat
 from tracker import det_feat_record
+from tracker import refined_track_vis
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
-    def __init__(self, tlwh, score, temp_feat, buffer_size=30):
+    def __init__(self, tlwh, score, temp_feat, buffer_size):
 
         # wait activate
         self._tlwh = np.asarray(tlwh, dtype=np.float)
@@ -40,6 +41,9 @@ class STrack(BaseTrack):
         self.features = deque([], maxlen=buffer_size)
         self.alpha = 0.9
 
+        # self.tan_theta = 0
+        # self.tbs = []
+        self.linearty = 1
     def update_features(self, feat):
         feat /= np.linalg.norm(feat)
         self.curr_feat = feat
@@ -61,9 +65,9 @@ class STrack(BaseTrack):
         if len(stracks) > 0:
             multi_mean = np.asarray([st.mean.copy() for st in stracks])
             multi_covariance = np.asarray([st.covariance for st in stracks])
-            for i, st in enumerate(stracks):
-                if st.state != TrackState.Tracked:
-                    multi_mean[i][7] = 0
+            # for i, st in enumerate(stracks):
+            #     if st.state != TrackState.Tracked:
+            #         multi_mean[i][7] = 0
             multi_mean, multi_covariance = STrack.shared_kalman.multi_predict(multi_mean, multi_covariance)
             for i, (mean, cov) in enumerate(zip(multi_mean, multi_covariance)):
                 stracks[i].mean = mean
@@ -110,6 +114,9 @@ class STrack(BaseTrack):
         :type update_feature: bool
         :return:
         """
+        ioud = 1 - matching.iou_distance([new_track],[self])[0,0]
+        self.linearty = self.alpha * self.linearty + (1-self.alpha) * ioud
+
         self.frame_id = frame_id
         self.tracklet_len += 1
 
@@ -126,7 +133,7 @@ class STrack(BaseTrack):
 
         self.last_track_frame_id = frame_id
         self.last_track_tlbr = self.tlbr
-
+        # self.update_theta()
     @property
     # @jit(nopython=True)
     def tlwh(self):
@@ -177,13 +184,18 @@ class STrack(BaseTrack):
         ret = np.asarray(tlwh).copy()
         ret[2:] += ret[:2]
         return ret
-    # def mark_lost(self):
-    #     super().mark_lost()
-    #     self.mean[-1] = 0
+
     def __repr__(self):
         return 'OT_{}_({}-{})'.format(self.track_id, self.start_frame, self.end_frame)
-
-
+    # def update_theta(self):
+    #     self.tan_theta *= len(self.tbs) * (len(self.tbs) - 1)
+    #     tmp_tb = (self.tlbr[1],self.tlbr[3])
+    #     for tb in self.tbs:
+    #         self.tan_theta += (tb[0] - tmp_tb[0]) / (tb[1] - tmp_tb[1])
+    #     self.tbs.append(tmp_tb)
+    #     if len(self.tbs) <= 1:
+    #         return
+    #     self.tan_theta /= len(self.tbs) * (len(self.tbs) - 1)
 class JDETracker(object):
     def __init__(self, opt, frame_rate=30):
         self.opt = opt
@@ -204,7 +216,7 @@ class JDETracker(object):
         self.frame_id = 0
         #self.det_thresh = opt.conf_thres
         self.det_thresh = opt.conf_thres + 0.1
-        self.buffer_size = int(frame_rate / 30.0 * opt.track_buffer)
+        self.buffer_size = int(frame_rate / 30.0 * 10000)
         self.max_time_lost = self.buffer_size
         self.max_per_image = opt.K
         self.mean = np.array(opt.mean, dtype=np.float32).reshape(1, 1, 3)
@@ -218,12 +230,12 @@ class JDETracker(object):
         self.matrixs = []
         self.window_matrix = 0
         self.last_img = None
-
+        self.window_shake_ratios = []
         """Insert Module compent"""
-        self.max_num_insframe = 10
-
+        self.max_num_insframe = 150
         '''recorder'''
         self.recorder = None
+        self.viser = None
 
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
@@ -322,14 +334,14 @@ class JDETracker(object):
 
         if len(dets) > 0:
             '''Detections'''
-            detections = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, 30) for
+            detections = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, self.buffer_size) for
                           (tlbrs, f) in zip(dets[:, :5], id_feature)]
         else:
             detections = []
 
         if len(dets_second) > 0:
             '''Detections'''
-            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, 30) for
+            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, self.buffer_size) for
                                  (tlbrs, f) in zip(dets_second[:, :5], id_feature_second)]
         else:
             detections_second = []
@@ -448,7 +460,8 @@ class JDETracker(object):
             tlbr[2:] = tlbr[2:] - tlbr[:2]
             out.append((tlbr, strack.track_id))
         """compute the map matrix"""
-
+        for track in refind_stracks:
+            self.viser.append(self.frame_id,track.last_track_frame_id,track.tlbr,track.last_track_tlbr)
 
         return out, self.insert_frame_lost_track(refind_stracks)
 
@@ -560,6 +573,10 @@ class JDETracker(object):
             map_matrix = np.matrix(self.recorder.get_mat())
         self.map_matrix = self.map_matrix * map_matrix
         self.matrixs.append(self.map_matrix)
+        if len(self.window_shake_ratios) == 0:
+            self.window_shake_ratios.append(0)
+        else:
+            self.window_shake_ratios.append(self.window_shake_ratios[-1] + np.abs(map_matrix[2,0]) + np.abs(map_matrix[2,1]))
         return map_matrix
     def insert_frame_lost_track(self,refind_stracks):
         insert_frame = {}
@@ -569,7 +586,10 @@ class JDETracker(object):
                 continue
             if lost_tlwh[2] * lost_tlwh[3] <= 100 or strack.tlwh[2] * strack.tlwh[3] <= 100 :
                 continue
-            if self.frame_id - (strack.last_track_frame_id+1) >= self.max_num_insframe :
+
+            mean_shake_ratio = (self.window_shake_ratios[-1] - self.window_shake_ratios[strack.last_track_frame_id-1]) / (self.frame_id - strack.last_track_frame_id)
+            max_insert_frames = self.max_num_insframe * np.exp(-np.abs(strack.mean[4])-np.abs(strack.mean[5])-mean_shake_ratio)
+            if self.frame_id - strack.last_track_frame_id >= max_insert_frames:
                 continue
             insert_frame[strack.track_id] = []
             map_mat = np.linalg.inv(self.matrixs[strack.last_track_frame_id-1])*self.matrixs[-1]
@@ -584,6 +604,8 @@ class JDETracker(object):
             strack.last_track_tlbr = strack.tlbr
         return  insert_frame
     def match(self,tracks,dets,feature,threshold,activated_starcks,refind_stracks):
+        if len(tracks) == 0 or len(dets) == 0:
+            return tracks,dets
         if feature == 'Iou':
             dists = matching.iou_distance(tracks, dets)
         elif feature == 'embedding':
@@ -614,6 +636,23 @@ class JDETracker(object):
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
         return [tracks[i] for i in u_track],[dets[i] for i in u_detection if i not in delete_dets]
+
+    # def search_area(self,lost_tracks):
+    #     out = []
+    #     for track in lost_tracks:
+    #         v = np.sqrt(track.mean[4]**2 + track.mean[5]**2)
+    #         d = v*(self.frame_id - track.last_track_frame_id)
+    #         tlbr = track.tlbr
+    #         if track.mean[4] < 0:
+    #             tlbr[2] += d
+    #         else:
+    #             tlbr[0] -= d
+    #         if track.mean[5] < 0:
+    #             tlbr[3] += d
+    #         else:
+    #             tlbr[1] -= d
+    #         out.append(STrack(STrack.tlbr_to_tlwh(tlbr), 1.0, track.features, self.buffer_size))
+    #     return  out
 def joint_stracks(tlista, tlistb):
     exists = {}
     res = []
