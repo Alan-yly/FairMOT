@@ -48,6 +48,8 @@ def make_mot17_half_dataset(src_pth,dist_pth,id_offset):
                     if id not in id_map.keys():
                         id_map[id] = len(id_map)
                     out_result[jpg].append((id_map[id]+id_offset,x[1],x[2]))
+                if len(out_result[jpg]) == 0:
+                    del out_result[jpg]
         for frame in mot_result[seq].keys():
             if frame > len_files:
                 jpg = join(src_pth,seq,'img1','{0:06d}.jpg'.format(frame))
@@ -57,7 +59,8 @@ def make_mot17_half_dataset(src_pth,dist_pth,id_offset):
                     if id not in id_map.keys():
                         continue
                     val_result[jpg].append((id_map[id]+id_offset,x[1],x[2]))
-
+                if len(val_result[jpg]) == 0:
+                    del val_result[jpg]
     f = open(join(dist_pth,'mot17_train_half.json'),'w')
     json.dump(out_result,f)
     f.close()

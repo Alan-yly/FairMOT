@@ -7,7 +7,8 @@ import time
 import torch
 import cv2
 import torch.nn.functional as F
-from models.model import create_model, load_model
+from ..models.model import create_model, load_model
+
 from models.decode import mot_decode
 from tracking_utils.utils import *
 from tracking_utils.log import logger

@@ -20,8 +20,8 @@ train:
   batch_size: 4
   num_workers: 8
   load_model: ''
-  num_epochs: 30
-  save_all: True
+  num_epochs: 15
+  save_all: False
   lr_step:
     - 15
     - 25
@@ -30,5 +30,6 @@ train:
   num_iters: -1
   logdir: /home/hust/yly/log
 val:
-  val_intervals: 5
+  val_intervals: 10
   label_pth: /home/hust/yly/Dataset/mot17_val_half.json
+  batch_size: 16

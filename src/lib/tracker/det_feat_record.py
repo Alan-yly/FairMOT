@@ -6,7 +6,8 @@ class det_feat_recorder():
     def __init__(self,seq,out_path,mode):
         self.mode = mode
         if mode == 'record':
-            self.fp = open(os.path.join(out_path,seq+'.json'),'w')
+            self.out_path = out_path
+            self.seq = seq
             self.records = []
             self.record_mats = []
         elif mode == 'get':
@@ -20,6 +21,7 @@ class det_feat_recorder():
 
     def __del__(self):
         if self.mode == 'record':
+            self.fp = open(os.path.join(self.out_path, self.seq + '.json'), 'w')
             json.dump((self.records,self.record_mats),self.fp)
             self.fp.close()
             print('finish record!')

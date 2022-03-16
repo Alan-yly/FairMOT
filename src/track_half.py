@@ -159,6 +159,7 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
 if __name__ == '__main__':
     torch.cuda.set_device(0)
     opt = opts().init()
+    print(opt)
     if not opt.val_mot16:
         seqs_str = '''KITTI-13
                       KITTI-17
