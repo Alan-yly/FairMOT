@@ -1,22 +1,7 @@
-def _gather_feat(feat, ind, mask=None):
-    dim  = feat.size(2)
-    ind  = ind.unsqueeze(2).expand(ind.size(0), ind.size(1), dim)
-    feat = feat.gather(1, ind)
-    if mask is not None:
-        mask = mask.unsqueeze(2).expand_as(feat)
-        feat = feat[mask]
-        feat = feat.view(-1, dim)
-    return feat
-
-def _tranpose_and_gather_feat(feat, ind):
-    feat = feat.permute(0, 2, 3, 1).contiguous()
-    print(feat)
-    feat = feat.view(feat.size(0), -1, feat.size(3))
-    feat = _gather_feat(feat, ind)
-    return feat
-
-import torch
-
-x = torch.rand((1,4,3,2))
-y = torch.tensor([[2,0,4,5]])
-print(_tranpose_and_gather_feat(x,y))
+from lib.mywork import dataset
+import yaml
+config = list(yaml.safe_load_all(open('config.yaml')))[0]
+print(config)
+train_config = config['train']
+dt = dataset.Dataset(train_config)
+dt.__getitem__(2965)

@@ -1,0 +1,33 @@
+model:
+  src_vocab: 128
+  trg_vocab: 128
+  d_model: 128
+  N: 6
+  heads: 8
+  dropout: 0.2
+  dis: 0.5
+train:
+  label_pth: /home/hust/yly/Dataset/all.json
+  feat_extract_model_path: /home/hust/yly/Model/mix_mot17_half_dla34.pth
+  down_rate: 4
+  max_len: 30
+  device: cuda
+  base_lr: 0.01
+  start_epoch: 1
+  batch_size: 128
+  num_workers: 1
+  load_model: ''
+  num_epochs: 15
+  save_all: True
+  lr_step:
+    - 15
+    - 25
+  save_dir: /home/hust/yly/Model
+  num_iters: -1
+  logdir: /home/hust/yly/log
+  mode: record
+  file: /home/hust/yly/featmap.json
+val:
+  val_intervals: 5
+  label_pth: /home/hust/yly/Dataset/mot17_val_half.json
+  batch_size: 64

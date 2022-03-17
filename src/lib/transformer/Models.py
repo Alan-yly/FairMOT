@@ -11,7 +11,7 @@ class Encoder(nn.Module):
     def __init__(self, vocab_size, d_model, N, heads, dropout):
         super().__init__()
         self.N = N
-        self.embed = Embedder(vocab_size, d_model)
+        self.embed = nn.Linear(vocab_size, d_model)
         self.pe = PositionalEncoder(d_model, dropout=dropout)
         self.layers = get_clones(EncoderLayer(d_model, heads, dropout), N)
         self.norm = Norm(d_model)
@@ -26,7 +26,7 @@ class Decoder(nn.Module):
     def __init__(self, vocab_size, d_model, N, heads, dropout):
         super().__init__()
         self.N = N
-        self.embed = Embedder(vocab_size, d_model)
+        self.embed = nn.Linear(vocab_size, d_model)
         self.pe = PositionalEncoder(d_model, dropout=dropout)
         self.layers = get_clones(DecoderLayer(d_model, heads, dropout), N)
         self.norm = Norm(d_model)

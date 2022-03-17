@@ -38,8 +38,18 @@ def make_mot17_half_dataset(src_pth,dist_pth):
                 mot_result[seq][id] = [[] for _ in range(len_files)]
             id = id_map[track_id]
             tlbr = [chars[2],chars[3],chars[2]+chars[4],chars[3]+chars[5]]
-            mot_result[seq][id][frame_id-1] = (join(src_pth,seq,'img1','{0:06d}'.format(frame_id)),tlbr,vis_ratio)
-
+            mot_result[seq][id][frame_id-1] = (join(src_pth,seq,'img1','{0:06d}.jpg'.format(frame_id)),tlbr,vis_ratio)
+        id = 0
+        for key in range(len(mot_result[seq])):
+            valid_frames = 0
+            for frame in mot_result[seq][key]:
+                if len(frame) > 0:
+                    valid_frames += 1
+            tmp = mot_result[seq][key]
+            del mot_result[seq][key]
+            if valid_frames >= 4:
+                mot_result[seq][id] = tmp
+                id += 1
     f = open(join(dist_pth,'mot17_half.json'),'w')
     json.dump(mot_result,f)
     f.close()
@@ -80,7 +90,18 @@ def make_mot15_dataset(src_pth, dist_pth):
                 mot_result[seq][id] = [[] for _ in range(len_files)]
             id = id_map[track_id]
             tlbr = [chars[2], chars[3], chars[2] + chars[4], chars[3] + chars[5]]
-            mot_result[seq][id][frame_id - 1] = (join(src_pth,seq,'img1','{0:06d}'.format(frame_id)),tlbr, 1.)
+            mot_result[seq][id][frame_id - 1] = (join(src_pth,seq,'img1','{0:06d}.jpg'.format(frame_id)),tlbr, 1.)
+        id = 0
+        for key in range(len(mot_result[seq])):
+            valid_frames = 0
+            for frame in mot_result[seq][key]:
+                if len(frame) > 0:
+                    valid_frames += 1
+            tmp = mot_result[seq][key]
+            del mot_result[seq][key]
+            if valid_frames >= 4:
+                mot_result[seq][id] = tmp
+                id += 1
     f = open(join(dist_pth, 'mot15.json'), 'w')
     json.dump(mot_result, f)
     f.close()
@@ -117,8 +138,18 @@ def make_mot20_dataset(src_pth,dist_pth):
                 mot_result[seq][id] = [[] for _ in range(len_files)]
             id = id_map[track_id]
             tlbr = [chars[2],chars[3],chars[2]+chars[4],chars[3]+chars[5]]
-            mot_result[seq][id][frame_id-1] = (join(src_pth,seq,'img1','{0:06d}'.format(frame_id)),tlbr,vis_ratio)
-
+            mot_result[seq][id][frame_id-1] = (join(src_pth,seq,'img1','{0:06d}.jpg'.format(frame_id)),tlbr,vis_ratio)
+        id = 0
+        for key in range(len(mot_result[seq])):
+            valid_frames = 0
+            for frame in mot_result[seq][key]:
+                if len(frame) > 0:
+                    valid_frames += 1
+            tmp = mot_result[seq][key]
+            del mot_result[seq][key]
+            if valid_frames >= 4:
+                mot_result[seq][id] = tmp
+                id += 1
     f = open(join(dist_pth,'mot20.json'),'w')
     json.dump(mot_result,f)
     f.close()

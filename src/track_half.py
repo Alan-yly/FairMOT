@@ -51,7 +51,7 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
     if save_dir:
         mkdir_if_missing(save_dir)
     tracker = JDETracker(opt, frame_rate=frame_rate)
-    tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','get')
+    tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','record')
     tracker.viser = refined_track_vis.losttrack_viser(os.path.join('/home/hust/yly/Dataset/MOT17/train',seq,'img1')
                                                       ,os.path.join('/home/hust/yly/Dataset/MOT17/',seq+'-viser.json'),int(len(dataloader)/2)+1)
     timer = Timer()
