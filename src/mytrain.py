@@ -1,3 +1,4 @@
+
 import lib.mywork.dataset as dataset
 import lib.mywork.mynetwork as network
 import lib.mywork.dataloader as dataloader
@@ -44,7 +45,7 @@ def main():
 
     for epoch in range(start_epoch,train_config['num_epochs']+1):
         mark = epoch if train_config['save_all'] else 'last'
-        trainer.train(epoch, train_loader)
+        # trainer.train(epoch, train_loader)
         print('!')
         if val_config['val_intervals'] > 0 and epoch % val_config['val_intervals'] == 0:
             trainer.val(epoch, val_loader)
@@ -60,9 +61,9 @@ def main():
             print('Drop LR to', lr)
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
-        if epoch % 5 == 0 or epoch >= 25:
-            save_model(os.path.join(train_config['save_dir'], 'model_{}.pth'.format(epoch)),
-                       epoch, model, optimizer)
+        # if epoch % 10 == 0 or epoch >= train_config['num_epochs']+1 - 5:
+        #     save_model(os.path.join(train_config['save_dir'], 'model_{}.pth'.format(epoch)),
+        #                epoch, model, optimizer)
 
 
 if __name__ == '__main__':

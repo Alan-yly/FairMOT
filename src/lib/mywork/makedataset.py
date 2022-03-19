@@ -157,8 +157,9 @@ def make_mot20_dataset(src_pth,dist_pth):
 
 def merge_result(src_pth):
     out = {}
+    files = ['mot15.json','mot17_half.json']
     for file in listdir(src_pth):
-        if file[-4:] == 'json':
+        if file[-4:] == 'json' and file in files:
             ob = json.load(open(join(src_pth,file),'r'))
             for key in ob.keys():
                 out[key] = ob[key]
@@ -168,8 +169,8 @@ def merge_result(src_pth):
 
 
 if __name__ == '__main__':
-    make_mot17_half_dataset('/home/hust/yly/Dataset/MOT17/train','/home/hust/yly/Dataset/')
-    make_mot15_dataset('/home/hust/yly/Dataset/MOT15/train', '/home/hust/yly/Dataset/')
-    make_mot20_dataset('/home/hust/yly/Dataset/MOT20/train', '/home/hust/yly/Dataset/')
+    # make_mot17_half_dataset('/home/hust/yly/Dataset/MOT17/train','/home/hust/yly/Dataset/')
+    # make_mot15_dataset('/home/hust/yly/Dataset/MOT15/train', '/home/hust/yly/Dataset/')
+    # make_mot20_dataset('/home/hust/yly/Dataset/MOT20/train', '/home/hust/yly/Dataset/')
     merge_result('/home/hust/yly/Dataset/')
 

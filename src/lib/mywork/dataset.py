@@ -55,8 +55,11 @@ class Dataset():  # for training
         self.dim = 128
         self.file = config['file']
         self.json = open(self.file,'r')
+        self.recoder = {}
         self.recoder = json.load(self.json)
         self.json.close()
+        self.min_frames = config['min_frames']
+        self.max_frames = config['max_frames']
     def __del__(self):
         self.json = open(self.file, 'w')
         json.dump(self.recoder,self.json)
@@ -82,12 +85,11 @@ class Dataset():  # for training
         for i in range(len(track)):
             if len(track[i]) != 0:
                 frames.append(track[i])
-        min_frames = 2
-        max_frames = 10
-        tstart = random.sample(range(0,len(frames)-2*min_frames+1),1)[0]
-        tend = random.sample(range(tstart+min_frames-1,min(len(frames)-min_frames,tstart+max_frames)),1)[0]
-        pstart = random.sample(range(tend+1,len(frames)-min_frames+1),1)[0]
-        pend = random.sample(range(pstart+1,min(len(frames),pstart+max_frames)),1)[0]
+
+        tstart = random.sample(range(0,len(frames)-2*self.min_frames+1),1)[0]
+        tend = random.sample(range(tstart+self.min_frames-1,min(len(frames)-self.min_frames,tstart+self.max_frames)),1)[0]
+        pstart = random.sample(range(tend+1,len(frames)-self.min_frames+1),1)[0]
+        pend = random.sample(range(pstart+1,min(len(frames),pstart+self.max_frames)),1)[0]
         for ind,i in enumerate(range(tstart,tend+1)):
             target_feat[ind] = self.get_target_feat(frames[i][0],frames[i][1],files_index)
             target_mask[ind] = 1
@@ -99,15 +101,16 @@ class Dataset():  # for training
 
         idtmp = files_index
         while idtmp == files_index:
-            idtmp = random.sample(range(len(self.label_files[seq])),1)
-        ntrack = self.label_files[seq][str(idtmp[0])]
+            idtmp = random.sample(range(len(self.label_files[seq])),1)[0]
+
+        ntrack = self.label_files[seq][str(idtmp)]
         frames = []
         for i in range(len(ntrack)):
             if len(ntrack[i]) != 0:
                 frames.append(ntrack[i])
-        tmp = random.sample(range(len(frames)-min_frames+1),1)
-        for ind,i in enumerate(range(tmp[0], min(len(frames), tmp[0]+random.randint(min_frames,max_frames)))):
-            ntrack_feat[ind] = self.get_target_feat(frames[i][0],frames[i][1],idtmp[0])
+        tmp = random.sample(range(len(frames)-self.min_frames+1),1)
+        for ind,i in enumerate(range(tmp[0], min(len(frames), tmp[0]+random.randint(self.min_frames,self.max_frames)))):
+            ntrack_feat[ind] = self.get_target_feat(frames[i][0],frames[i][1],idtmp)
             ntrack_mask[ind] = 1
 
 
@@ -161,4 +164,11 @@ class Dataset():  # for training
             feat = torchvision.ops.roi_align(id_feature,torch.tensor([[0,x,y,x,y]]).float().to(self.device),1).squeeze()
             self.recoder[id] = np.array(feat.cpu()).tolist()
             return feat
-
+    # def get_target_feat(self,img_pth,tlbr,id):
+    #     with torch.no_grad():
+    #         img = cv2.imread(img_pth)
+    #         img = img[:, :, ::-1].transpose(2, 0, 1)
+    #         img = np.ascontiguousarray(img, dtype=np.float32)
+    #         img = torch.from_numpy(img).to(self.device).unsqueeze(0)
+    #         feat = torchvision.ops.roi_align(img,torch.tensor([[0,tlbr[0],tlbr[1],tlbr[2],tlbr[3]]]).float().cuda(),(16,8)).mean(1).reshape(128)
+    #         return feat
