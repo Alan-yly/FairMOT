@@ -17,6 +17,7 @@ def main():
     val_config = config['val']
     model_config = config['model']
     trainset = dataset.Dataset(train_config)
+    valset = dataset.Dataset(val_config)
     model = network.Mynetwork(model_config)
     loss = network.Myloss(model_config)
     optimizer = torch.optim.Adam(model.parameters(), train_config['base_lr'])
@@ -30,7 +31,7 @@ def main():
         shuffle=True,
     )
     val_loader = dataloader.Dataloader(
-        trainset,
+        valset,
         batch_size=val_config['batch_size'],
         shuffle=True,
     )
@@ -45,7 +46,7 @@ def main():
 
     for epoch in range(start_epoch,train_config['num_epochs']+1):
         mark = epoch if train_config['save_all'] else 'last'
-        # trainer.train(epoch, train_loader)
+        trainer.train(epoch, train_loader)
         print('!')
         if val_config['val_intervals'] > 0 and epoch % val_config['val_intervals'] == 0:
             trainer.val(epoch, val_loader)

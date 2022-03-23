@@ -8,16 +8,16 @@ model:
   dis: 0.5
   map_com_itels: 1
 train:
-  label_pth: /home/hust/yly/Dataset/mot15.json
+  label_pth: /home/hust/yly/Dataset/all.json
   feat_extract_model_path: /home/hust/yly/Model/mix_mot17_half_dla34.pth
   down_rate: 4
-  max_len: 30
+  max_len: 20
   device: cuda
   base_lr: 0.001
   start_epoch: 1
   batch_size: 196
   num_workers: 1
-  load_model: '/home/hust/yly/Model/model_last.pth'
+  load_model: ''
   num_epochs: 100
   save_all: False
   lr_step:
@@ -29,10 +29,17 @@ train:
   logdir: /home/hust/yly/log
   mode: record
   file: /home/hust/yly/featmap.json
-  min_frames: 2
-  max_frames: 30
+  min_frames: 10
+  max_frames: 20
 val:
-  val_intervals: 5
-  label_pth: /home/hust/yly/Dataset/mot17_val_half.json
+  val_intervals: 25
+  device: cuda
+  feat_extract_model_path: /home/hust/yly/Model/mix_mot17_half_dla34.pth
+  down_rate: 4
+  max_len: 30
+  label_pth: /home/hust/yly/Dataset/mot15.json
   batch_size: 16
+  file: /home/hust/yly/featmapmot15.json
+  min_frames: 5
+  max_frames: 30
 

@@ -16,7 +16,7 @@ class Encoder(nn.Module):
         self.layers = get_clones(EncoderLayer(d_model, heads, dropout), N)
         self.norm = Norm(d_model)
     def forward(self, src, mask):
-        x = self.embed(src)
+        x = self.embed(src) + src
         x = self.pe(x)
         for i in range(self.N):
             x = self.layers[i](x, mask)
@@ -31,7 +31,7 @@ class Decoder(nn.Module):
         self.layers = get_clones(DecoderLayer(d_model, heads, dropout), N)
         self.norm = Norm(d_model)
     def forward(self, trg, e_outputs, src_mask, trg_mask):
-        x = self.embed(trg)
+        x = self.embed(trg) + trg
         x = self.pe(x)
         for i in range(self.N):
             x = self.layers[i](x, e_outputs, src_mask, trg_mask)

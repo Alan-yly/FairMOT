@@ -25,14 +25,15 @@ class Mynetwork(nn.Module):
             output = F.normalize(output, 2, -1)
             return  output
 
-        out1 = func(src,trg,src_mask,trg_mask)
-        out2 = func(trg,src,trg_mask,src_mask)
+        out1 = func(trg, src, trg_mask, src_mask)
+        out2 = func(src,trg,src_mask,trg_mask)
         # out1 = F.normalize(src,2,-1)
         # out2 = F.normalize(trg,2,-1)
         mat = torch.matmul(out1,out2.transpose(2,1))
         src_mask = src_mask.unsqueeze(-1)
         trg_mask = trg_mask.unsqueeze(1)
         sorce_mat = torch.matmul(src_mask, trg_mask)
+
         similar = torch.sum(mat*sorce_mat,(-1,-2)) / torch.sum(sorce_mat,(-1,-2))
 
         return 1 - (similar + 1) / 2
@@ -41,7 +42,7 @@ class Myloss(nn.Module):
     def __init__(self,model_config):
         super(Myloss, self).__init__()
         self.dis = model_config['dis']
-        self.loss_dict = {'loss':None,'p':None,'n':None,'ap':None}
+        self.loss_dict = {'loss':None,'p':None,'n':None}
         self.map_com_itels = model_config['map_com_itels']
         self.ps = []
         self.ns = []
@@ -53,11 +54,8 @@ class Myloss(nn.Module):
         self.loss_dict['n'] = n.clone().detach().cpu()
         self.ps += np.array(self.loss_dict['p']).tolist()
         self.ns += np.array(self.loss_dict['n']).tolist()
-        self.num += 1
-        if self.num % self.map_com_itels == 0:
-            self.loss_dict['ap'] = self.compuate()
         return loss
-    def compuate(self):
+    def compute_ap(self):
         def voc_ap(rec, prec, use_07_metric=False):
             """ ap = voc_ap(rec, prec, [use_07_metric])
             Compute VOC AP given precision and recall.

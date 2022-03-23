@@ -23,9 +23,13 @@ from utils.image import get_affine_transform
 from models.utils import _tranpose_and_gather_feat
 from tracker import det_feat_record
 from tracker import refined_track_vis
+from ..mywork.mynetwork import Mynetwork
+from cython_bbox import bbox_overlaps as bbox_ious
+
+
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
-    def __init__(self, tlwh, score, temp_feat, buffer_size):
+    def __init__(self, tlwh, score, temp_feat, buffer_size,frame_id):
 
         # wait activate
         self._tlwh = np.asarray(tlwh, dtype=np.float)
@@ -42,9 +46,10 @@ class STrack(BaseTrack):
         self.features = deque([], maxlen=buffer_size)
         self.alpha = 0.9
 
-        # self.tan_theta = 0
-        # self.tbs = []
-        self.linearty = 1
+        self.sum_track_len = 0
+
+        self.begin_frame_id = frame_id
+        self.begin_tlbr = STrack.tlwh_to_tlbr(self._tlwh)
     def update_features(self, feat):
         feat /= np.linalg.norm(feat)
         self.curr_feat = feat
@@ -81,6 +86,7 @@ class STrack(BaseTrack):
         self.mean, self.covariance = self.kalman_filter.initiate(self.tlwh_to_xyah(self._tlwh))
 
         self.tracklet_len = 0
+        self.sum_track_len += 1
         self.state = TrackState.Tracked
         if frame_id == 1:
             self.is_activated = True
@@ -92,6 +98,8 @@ class STrack(BaseTrack):
         self.last_track_frame_id = frame_id
         self.last_track_tlbr = self.tlbr
 
+
+
     def re_activate(self, new_track, frame_id, new_id=False):
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, self.tlwh_to_xyah(new_track.tlwh)
@@ -99,6 +107,7 @@ class STrack(BaseTrack):
 
         self.update_features(new_track.curr_feat)
         self.tracklet_len = 0
+        self.sum_track_len += 1
         self.state = TrackState.Tracked
         self.is_activated = True
         self.frame_id = frame_id
@@ -115,11 +124,10 @@ class STrack(BaseTrack):
         :type update_feature: bool
         :return:
         """
-        ioud = 1 - matching.iou_distance([new_track],[self])[0,0]
-        self.linearty = self.alpha * self.linearty + (1-self.alpha) * ioud
 
         self.frame_id = frame_id
         self.tracklet_len += 1
+        self.sum_track_len += 1
 
         new_tlwh = new_track.tlwh
         self.mean, self.covariance = self.kalman_filter.update(
@@ -188,15 +196,7 @@ class STrack(BaseTrack):
 
     def __repr__(self):
         return 'OT_{}_({}-{})'.format(self.track_id, self.start_frame, self.end_frame)
-    # def update_theta(self):
-    #     self.tan_theta *= len(self.tbs) * (len(self.tbs) - 1)
-    #     tmp_tb = (self.tlbr[1],self.tlbr[3])
-    #     for tb in self.tbs:
-    #         self.tan_theta += (tb[0] - tmp_tb[0]) / (tb[1] - tmp_tb[1])
-    #     self.tbs.append(tmp_tb)
-    #     if len(self.tbs) <= 1:
-    #         return
-    #     self.tan_theta /= len(self.tbs) * (len(self.tbs) - 1)
+
 class JDETracker(object):
     def __init__(self, opt, frame_rate=30):
         self.opt = opt
@@ -217,8 +217,8 @@ class JDETracker(object):
         self.frame_id = 0
         #self.det_thresh = opt.conf_thres
         self.det_thresh = opt.conf_thres + 0.1
-        self.buffer_size = int(frame_rate / 30.0 * 10000)
-        self.max_time_lost = self.buffer_size
+        self.buffer_size = 20
+        self.max_time_lost = 300
         self.max_per_image = opt.K
         self.mean = np.array(opt.mean, dtype=np.float32).reshape(1, 1, 3)
         self.std = np.array(opt.std, dtype=np.float32).reshape(1, 1, 3)
@@ -237,7 +237,17 @@ class JDETracker(object):
         '''recorder'''
         self.recorder = None
         self.viser = None
-
+        '''transformer'''
+        config = {'src_vocab':128,'trg_vocab':128,'d_model':128,'N':6,'heads':8,'dropout':0.2}
+        self.compare_net = Mynetwork(config)
+        load_model(self.compare_net,'/home/hust/yly/Model/model_last.pth')
+        self.compare_net.to(opt.device)
+        self.compare_net.eval()
+        self.id_map = {}
+        self.init_tracks = {}
+        self.min_frames = 10
+        self.max_frames = 20
+        self.len_rematch = 0
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
         dets = dets.reshape(1, -1, dets.shape[2])
@@ -336,14 +346,14 @@ class JDETracker(object):
 
         if len(dets) > 0:
             '''Detections'''
-            detections = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, self.buffer_size) for
+            detections = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, self.buffer_size,self.frame_id) for
                           (tlbrs, f) in zip(dets[:, :5], id_feature)]
         else:
             detections = []
 
         if len(dets_second) > 0:
             '''Detections'''
-            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, self.buffer_size) for
+            detections_second = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, self.buffer_size,self.frame_id) for
                                  (tlbrs, f) in zip(dets_second[:, :5], id_feature_second)]
         else:
             detections_second = []
@@ -392,7 +402,7 @@ class JDETracker(object):
 
 
         ''' Step 3: Second association, with embedding on lost'''
-        _, detections = self.match(self.lost_stracks, detections, 'embedding', 0.4, activated_starcks,
+        _, detections = self.match(self.lost_stracks, detections, 'loss_embedding', 0.4, activated_starcks,
                                                    refind_stracks)
 
         ''' Step 4: Third association, with IOU'''
@@ -462,10 +472,9 @@ class JDETracker(object):
             tlbr[2:] = tlbr[2:] - tlbr[:2]
             out.append((tlbr, strack.track_id))
         """compute the map matrix"""
-        for track in refind_stracks:
-            self.viser.append(self.frame_id,track.last_track_frame_id,track.tlbr,track.last_track_tlbr)
+        insert_frame = self.insert_frame_lost_track(refind_stracks)
 
-        return out, self.insert_frame_lost_track(refind_stracks)
+        return out,insert_frame
 
     def compute_mapped_tlbr(self,tlbr,mat):
         tl = np.matrix(np.hstack([tlbr[:2], np.ones(1)]))
@@ -588,21 +597,22 @@ class JDETracker(object):
                 continue
             if lost_tlwh[2] * lost_tlwh[3] <= 100 or strack.tlwh[2] * strack.tlwh[3] <= 100 :
                 continue
-
-            mean_shake_ratio = (self.window_shake_ratios[-1] - self.window_shake_ratios[strack.last_track_frame_id-1]) / (self.frame_id - strack.last_track_frame_id)
+            if strack.frame_id - strack.last_track_frame_id == 0:
+                continue
+            mean_shake_ratio = (self.window_shake_ratios[-1] - self.window_shake_ratios[strack.last_track_frame_id-1]) / (strack.frame_id - strack.last_track_frame_id)
             max_insert_frames = self.max_num_insframe * np.exp(-np.abs(strack.mean[4])-np.abs(strack.mean[5])-mean_shake_ratio)
-            if self.frame_id - strack.last_track_frame_id >= max_insert_frames:
+            if strack.frame_id - strack.last_track_frame_id >= max_insert_frames:
                 continue
             insert_frame[strack.track_id] = []
             map_mat = np.linalg.inv(self.matrixs[strack.last_track_frame_id-1])*self.matrixs[-1]
             tmp_tlbr = self.compute_mapped_tlbr(strack.tlbr,np.linalg.inv(map_mat))
 
-            for frame in range(strack.last_track_frame_id+1,self.frame_id):
-                tlbr = strack.last_track_tlbr + (frame - strack.last_track_frame_id) / (self.frame_id  - strack.last_track_frame_id) * (tmp_tlbr - strack.tlbr)
+            for frame in range(strack.last_track_frame_id+1,strack.frame_id):
+                tlbr = strack.last_track_tlbr + (frame - strack.last_track_frame_id) / (strack.frame_id  - strack.last_track_frame_id) * (tmp_tlbr - strack.tlbr)
                 map_mat = np.linalg.inv(self.matrixs[strack.last_track_frame_id - 1]) * self.matrixs[frame-1]
                 tlwh = STrack.tlbr_to_tlwh(self.compute_mapped_tlbr(tlbr,map_mat))
                 insert_frame[strack.track_id].append((tlwh,frame))
-            strack.last_track_frame_id = self.frame_id
+            strack.last_track_frame_id = strack.frame_id
             strack.last_track_tlbr = strack.tlbr
         return  insert_frame
     def match(self,tracks,dets,feature,threshold,activated_starcks,refind_stracks):
@@ -615,6 +625,21 @@ class JDETracker(object):
             ioudists = matching.iou_distance(tracks, dets)
             dists[ioudists > 0.8] = np.inf
             dists = matching.fuse_motion(self.kalman_filter, dists, tracks, dets)
+        elif feature == 'loss_embedding':
+            ioudists = matching.iou_distance(tracks, dets)
+            dists = matching.embedding_distance(tracks, dets)
+            for i in range(len(tracks)):
+                for j in range(len(dets)):
+                    if ioudists[i,j] <= 0.8:
+                        if tracks[i].tracklet_len < 1:
+                            continue
+                        x = F.normalize(torch.from_numpy(tracks[i].curr_feat),2,-1).cuda()
+                        y = F.normalize(torch.from_numpy(dets[j].curr_feat),2,-1).unsqueeze(-1).cuda()
+                        dists[i,j] = max(0,1 - torch.matmul(x,y).mean().cpu().item())
+                    else:
+                        dists[i,j] = np.inf
+            dists = matching.fuse_motion(self.kalman_filter, dists, tracks, dets)
+
         else:
             exit()
             return
@@ -638,23 +663,84 @@ class JDETracker(object):
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
         return [tracks[i] for i in u_track],[dets[i] for i in u_detection if i not in delete_dets]
+    def re_match(self,threshold):
+        compare_tracked_track = []
+        for strack in self.tracked_stracks:
+            if strack.tracklet_len < self.min_frames or strack.sum_track_len > self.max_frames:
+                continue
+            feature_tensor = torch.zeros((1,self.max_frames,128)).float().cuda()
+            mask = torch.zeros((1,self.max_frames)).float().cuda()
+            for i in range(len(strack.features)):
+                feature_tensor[0,i,:] = torch.from_numpy(strack.features[i]).cuda()
+                mask[0,i] = 1
+            compare_tracked_track.append((feature_tensor, mask,strack))
 
-    # def search_area(self,lost_tracks):
-    #     out = []
-    #     for track in lost_tracks:
-    #         v = np.sqrt(track.mean[4]**2 + track.mean[5]**2)
-    #         d = v*(self.frame_id - track.last_track_frame_id)
-    #         tlbr = track.tlbr
-    #         if track.mean[4] < 0:
-    #             tlbr[2] += d
-    #         else:
-    #             tlbr[0] -= d
-    #         if track.mean[5] < 0:
-    #             tlbr[3] += d
-    #         else:
-    #             tlbr[1] -= d
-    #         out.append(STrack(STrack.tlbr_to_tlwh(tlbr), 1.0, track.features, self.buffer_size))
-    #     return  out
+        compare_losted_track = []
+        for i,strack in enumerate(self.lost_stracks):
+            if strack.tracklet_len < self.max_frames:
+                continue
+            feature_tensor = torch.zeros((1, self.max_frames, 128)).float().cuda()
+            mask = torch.zeros((1, self.max_frames)).float().cuda()
+            for i in range(len(strack.features)):
+                feature_tensor[0,i,:] = torch.from_numpy(strack.features[i]).cuda()
+                mask[0, i] = 1
+            compare_losted_track.append((feature_tensor, mask,strack))
+
+        dist = np.ones((len(compare_losted_track), len(compare_tracked_track)))
+        with torch.no_grad():
+            for i in range(len(compare_losted_track)):
+                for j in range(len(compare_tracked_track)):
+                    src, src_mask,losted_track = compare_losted_track[i]
+                    trg, trg_mask,tracked_track = compare_tracked_track[j]
+                    tlbr = losted_track.tlbr
+                    # v1 = losted_track.tlbr - losted_track.last_track_tlbr
+                    # v2 = v1.copy()
+                    # v2[[0,2]] = -v2[[0,2]]
+                    # tlbr[0] = min(
+                    #     [(losted_track.last_track_tlbr + v1)[0],(losted_track.last_track_tlbr -v1)[0],(losted_track.last_track_tlbr+v2)[0],
+                    #                (losted_track.last_track_tlbr-v2)[0]])
+                    # tlbr[1] = min(
+                    #     [(losted_track.last_track_tlbr + v1)[1], (losted_track.last_track_tlbr - v1)[1], (losted_track.last_track_tlbr + v2)[1],
+                    #      (losted_track.last_track_tlbr - v2)[1]])
+                    # tlbr[2] = max(
+                    #     [(losted_track.last_track_tlbr + v1)[2], (losted_track.last_track_tlbr - v1)[2], (losted_track.last_track_tlbr + v2)[2],
+                    #      (losted_track.last_track_tlbr - v2)[2]])
+                    # tlbr[3] = max(
+                    #     [(losted_track.last_track_tlbr + v1)[3], (losted_track.last_track_tlbr - v1)[3], (losted_track.last_track_tlbr + v2)[3],
+                    #      (losted_track.last_track_tlbr - v2)[3]])
+                    ious = bbox_ious(
+                        np.ascontiguousarray([tlbr], dtype=np.float),
+                        np.ascontiguousarray([tracked_track.tlbr], dtype=np.float)
+                    )[0,0]
+                    if losted_track.last_track_frame_id < tracked_track.begin_frame_id and ious > 0 :
+                        dist[i, j] = self.compare_net(src, trg, src_mask, trg_mask)
+        matches, _, _ =  matching.linear_assignment(dist, thresh=threshold)
+        refined_tracks = []
+        removed_stracks = []
+        self.len_rematch += len(matches)
+        for ilosted, itracked in matches:
+            losted_track = compare_losted_track[ilosted][2]
+            tracked_track = compare_tracked_track[itracked][2]
+            losted_track.features.extend(tracked_track.features)
+            tracked_track.features = losted_track.features
+            tracked_track.begin_frame_id = losted_track.begin_frame_id
+            tracked_track.sum_track_len += losted_track.sum_track_len
+            losted_track.re_activate(tracked_track, tracked_track.begin_frame_id, new_id=False)
+            refined_tracks.append(losted_track)
+            id = losted_track.track_id
+            if id in self.id_map.keys():
+                id = self.id_map[id]
+            self.id_map[tracked_track.track_id] = id
+            losted_track.mark_removed()
+            removed_stracks.append(strack)
+
+        self.removed_stracks.extend(removed_stracks)
+        self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
+        self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
+        self.insert_frame_lost_track(refined_tracks)
+        return {}
+    def __del__(self):
+        print(self.len_rematch)
 def joint_stracks(tlista, tlistb):
     exists = {}
     res = []

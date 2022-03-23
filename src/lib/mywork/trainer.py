@@ -46,6 +46,7 @@ class Trainer(object):
       model_with_loss.eval()
       torch.cuda.empty_cache()
     self.loss.reset_ap()
+
     results = {}
     avg_loss_stats = {l: AverageMeter() for l in self.loss_dict}
     num_iters = len(data_loader) if self.train_config['num_iters'] < 0 else self.train_config['num_iters']
@@ -63,7 +64,6 @@ class Trainer(object):
         self.writer.add_scalar('Loss/train', loss, n_iter)
         self.writer.add_scalar('p/train', self.loss_dict['p'].mean(), n_iter)
         self.writer.add_scalar('n/train', self.loss_dict['n'].mean(), n_iter)
-        self.writer.add_scalar('ap/train', self.loss_dict['ap'].mean(), n_iter)
       else:
         with torch.no_grad():
           loss = model_with_loss(batch)
@@ -71,7 +71,6 @@ class Trainer(object):
           self.writer.add_scalar('Loss/test', loss, n_iter)
           self.writer.add_scalar('p/test', self.loss_dict['p'].mean(), n_iter)
           self.writer.add_scalar('n/test', self.loss_dict['n'].mean(), n_iter)
-          self.writer.add_scalar('ap/test', self.loss_dict['ap'].mean(), n_iter)
 
       bar.suffix = '{phase}: [{0}][{1}/{2}]|Tot: {total:} |ETA: {eta:} '.format(
         epoch, iter_id, num_iters, phase=phase,
@@ -82,7 +81,7 @@ class Trainer(object):
         bar.suffix = bar.suffix + '|{} {:.4f} '.format(l, avg_loss_stats[l].avg)
       bar.next()
       del  loss, batch
-
+    print(self.loss.compute_ap())
     bar.finish()
     ret = {k: v.avg for k, v in avg_loss_stats.items()}
     ret['time'] = bar.elapsed_td.total_seconds() / 60.

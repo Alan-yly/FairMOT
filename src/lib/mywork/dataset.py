@@ -60,6 +60,8 @@ class Dataset():  # for training
         self.json.close()
         self.min_frames = config['min_frames']
         self.max_frames = config['max_frames']
+
+
     def __del__(self):
         self.json = open(self.file, 'w')
         json.dump(self.recoder,self.json)

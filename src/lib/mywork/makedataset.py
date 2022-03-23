@@ -5,6 +5,8 @@ import shutil
 import cv2
 from os.path import join
 from os import listdir
+
+min_frames = 10
 def make_mot17_half_dataset(src_pth,dist_pth):
     mot_seq = ["MOT17-02-SDP",
                'MOT17-04-SDP',
@@ -47,7 +49,7 @@ def make_mot17_half_dataset(src_pth,dist_pth):
                     valid_frames += 1
             tmp = mot_result[seq][key]
             del mot_result[seq][key]
-            if valid_frames >= 4:
+            if valid_frames >= 2*min_frames:
                 mot_result[seq][id] = tmp
                 id += 1
     f = open(join(dist_pth,'mot17_half.json'),'w')
@@ -99,7 +101,7 @@ def make_mot15_dataset(src_pth, dist_pth):
                     valid_frames += 1
             tmp = mot_result[seq][key]
             del mot_result[seq][key]
-            if valid_frames >= 4:
+            if valid_frames >= 2*min_frames:
                 mot_result[seq][id] = tmp
                 id += 1
     f = open(join(dist_pth, 'mot15.json'), 'w')
@@ -147,7 +149,7 @@ def make_mot20_dataset(src_pth,dist_pth):
                     valid_frames += 1
             tmp = mot_result[seq][key]
             del mot_result[seq][key]
-            if valid_frames >= 4:
+            if valid_frames >= 2*min_frames:
                 mot_result[seq][id] = tmp
                 id += 1
     f = open(join(dist_pth,'mot20.json'),'w')
@@ -171,6 +173,6 @@ def merge_result(src_pth):
 if __name__ == '__main__':
     # make_mot17_half_dataset('/home/hust/yly/Dataset/MOT17/train','/home/hust/yly/Dataset/')
     # make_mot15_dataset('/home/hust/yly/Dataset/MOT15/train', '/home/hust/yly/Dataset/')
-    # make_mot20_dataset('/home/hust/yly/Dataset/MOT20/train', '/home/hust/yly/Dataset/')
-    merge_result('/home/hust/yly/Dataset/')
+    make_mot20_dataset('/home/hust/yly/Dataset/MOT20/train', '/home/hust/yly/Dataset/')
+    # merge_result('/home/hust/yly/Dataset/')
 

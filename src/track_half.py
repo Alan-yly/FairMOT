@@ -51,9 +51,8 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
     if save_dir:
         mkdir_if_missing(save_dir)
     tracker = JDETracker(opt, frame_rate=frame_rate)
-    tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','record')
-    tracker.viser = refined_track_vis.losttrack_viser(os.path.join('/home/hust/yly/Dataset/MOT17/train',seq,'img1')
-                                                      ,os.path.join('/home/hust/yly/Dataset/MOT17/',seq+'-viser.json'),int(len(dataloader)/2)+1)
+    tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','get')
+
     timer = Timer()
     results = []
     len_all = len(dataloader)
@@ -99,6 +98,11 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
             cv2.imwrite(os.path.join(save_dir, '{:05d}.jpg'.format(frame_id)), online_im)
         frame_id += 1
     # save results
+    for result in results:
+        for i,id in enumerate(result[2]):
+            if id in tracker.id_map.keys():
+                id = tracker.id_map[id]
+            result[2][i] = id
     write_results(result_filename, results, data_type)
     #write_results_score(result_filename, results, data_type)
     return frame_id, timer.average_time, timer.calls
@@ -219,9 +223,9 @@ if __name__ == '__main__':
                       MOT17-11-SDP
                       MOT17-13-SDP'''
         # seqs_str = '''
-        #               MOT17-13-SDP
+        #               MOT17-04-SDP
         #               '''
-        data_root = os.path.join(opt.data_dir, 'MOT17/train')
+        data_root = os.path.join('/home/hust/yly/Dataset', 'MOT17/train')
     if opt.val_mot15:
         seqs_str = '''Venice-2
                       KITTI-13
