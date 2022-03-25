@@ -25,8 +25,7 @@ from tracker import det_feat_record
 from tracker import refined_track_vis
 from ..mywork.mynetwork import Mynetwork
 from cython_bbox import bbox_overlaps as bbox_ious
-from sklearn.gaussian_process.kernels import RBF
-from sklearn.gaussian_process import GaussianProcessRegressor as GPR
+from  collections import defaultdict
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
@@ -238,6 +237,7 @@ class JDETracker(object):
         '''recorder'''
         self.recorder = None
         self.viser = None
+
         '''transformer'''
         config = {'src_vocab':128,'trg_vocab':128,'d_model':128,'N':6,'heads':8,'dropout':0.2}
         self.compare_net = Mynetwork(config)
@@ -249,6 +249,10 @@ class JDETracker(object):
         self.min_frames = 10
         self.max_frames = 20
         self.len_rematch = 0
+
+        '''AFL'''
+        self.feat_record = defaultdict(dict)
+        self.start_frame_id = None
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
         dets = dets.reshape(1, -1, dets.shape[2])
@@ -475,6 +479,10 @@ class JDETracker(object):
         """compute the map matrix"""
         insert_frame = {}
         insert_frame = self.insert_frame_lost_track(refind_stracks)
+
+        '''record tracked_track feature'''
+        for track in output_stracks:
+            self.feat_record[track.track_id][self.frame_id+self.start_frame_id] = track.curr_feat.tolist()
         return out,insert_frame
 
     def compute_mapped_tlbr(self,tlbr,mat):
@@ -748,6 +756,11 @@ class JDETracker(object):
         return {}
     def __del__(self):
         print(self.len_rematch)
+    def record_feat(self):
+        import json
+        f = open('feat.json','w')
+        json.dump(self.feat_record,f)
+        f.close()
 def joint_stracks(tlista, tlistb):
     exists = {}
     res = []

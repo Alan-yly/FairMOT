@@ -13,6 +13,7 @@ import numpy as np
 import torch
 from lib.tracker.tracker import JDETracker
 from lib.tracker.GSI import GSInterpolation
+from lib.tracker.AFL import AFLink
 from lib.tracker.byte_tracker import BYTETracker
 from lib.tracking_utils import visualization as vis
 from lib.tracking_utils.log import logger
@@ -52,6 +53,7 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
     if save_dir:
         mkdir_if_missing(save_dir)
     tracker = JDETracker(opt, frame_rate=frame_rate)
+
     tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','get')
 
     timer = Timer()
@@ -59,6 +61,7 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
     len_all = len(dataloader)
     start_frame = int(len_all / 2)
     frame_id = int(len_all / 2)
+    tracker.start_frame_id = start_frame
     for i, (path, img, img0) in enumerate(dataloader):
         if i < start_frame:
             continue
@@ -105,10 +108,13 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
                 id = tracker.id_map[id]
             result[2][i] = id
     write_results(result_filename, results, data_type)
+    tracker.record_feat()
+    # AFLink(result_filename,result_filename,0.2,(0,30)).link()
     GSInterpolation(path_in=result_filename,
                 path_out=result_filename,
                 interval=20,
                 tau=10)
+
     #write_results_score(result_filename, results, data_type)
     return frame_id, timer.average_time, timer.calls
 
