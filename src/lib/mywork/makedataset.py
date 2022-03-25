@@ -5,8 +5,9 @@ import shutil
 import cv2
 from os.path import join
 from os import listdir
+# from ..models.model import create_model,load_model
+min_frames = 30
 
-min_frames = 10
 def make_mot17_half_dataset(src_pth,dist_pth):
     mot_seq = ["MOT17-02-SDP",
                'MOT17-04-SDP',
@@ -171,8 +172,8 @@ def merge_result(src_pth):
 
 
 if __name__ == '__main__':
-    # make_mot17_half_dataset('/home/hust/yly/Dataset/MOT17/train','/home/hust/yly/Dataset/')
-    # make_mot15_dataset('/home/hust/yly/Dataset/MOT15/train', '/home/hust/yly/Dataset/')
+    make_mot17_half_dataset('/home/hust/yly/Dataset/MOT17/train','/home/hust/yly/Dataset/')
+    make_mot15_dataset('/home/hust/yly/Dataset/MOT15/train', '/home/hust/yly/Dataset/')
     make_mot20_dataset('/home/hust/yly/Dataset/MOT20/train', '/home/hust/yly/Dataset/')
-    # merge_result('/home/hust/yly/Dataset/')
+    merge_result('/home/hust/yly/Dataset/')
 

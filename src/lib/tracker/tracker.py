@@ -25,7 +25,8 @@ from tracker import det_feat_record
 from tracker import refined_track_vis
 from ..mywork.mynetwork import Mynetwork
 from cython_bbox import bbox_overlaps as bbox_ious
-
+from sklearn.gaussian_process.kernels import RBF
+from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
@@ -218,7 +219,7 @@ class JDETracker(object):
         #self.det_thresh = opt.conf_thres
         self.det_thresh = opt.conf_thres + 0.1
         self.buffer_size = 20
-        self.max_time_lost = 300
+        self.max_time_lost = 10000
         self.max_per_image = opt.K
         self.mean = np.array(opt.mean, dtype=np.float32).reshape(1, 1, 3)
         self.std = np.array(opt.std, dtype=np.float32).reshape(1, 1, 3)
@@ -402,7 +403,7 @@ class JDETracker(object):
 
 
         ''' Step 3: Second association, with embedding on lost'''
-        _, detections = self.match(self.lost_stracks, detections, 'loss_embedding', 0.4, activated_starcks,
+        _, detections = self.match(self.lost_stracks, detections, 'embedding', 0.4, activated_starcks,
                                                    refind_stracks)
 
         ''' Step 4: Third association, with IOU'''
@@ -472,8 +473,8 @@ class JDETracker(object):
             tlbr[2:] = tlbr[2:] - tlbr[:2]
             out.append((tlbr, strack.track_id))
         """compute the map matrix"""
+        insert_frame = {}
         insert_frame = self.insert_frame_lost_track(refind_stracks)
-
         return out,insert_frame
 
     def compute_mapped_tlbr(self,tlbr,mat):
@@ -592,26 +593,35 @@ class JDETracker(object):
     def insert_frame_lost_track(self,refind_stracks):
         insert_frame = {}
         for strack in refind_stracks:
-            lost_tlwh = STrack.tlbr_to_tlwh(strack.last_track_tlbr)
-            if lost_tlwh[2] / lost_tlwh[3] > 1.6 or strack.tlwh[2] / strack.tlwh[3] > 1.6 :
-                continue
-            if lost_tlwh[2] * lost_tlwh[3] <= 100 or strack.tlwh[2] * strack.tlwh[3] <= 100 :
-                continue
-            if strack.frame_id - strack.last_track_frame_id == 0:
-                continue
             mean_shake_ratio = (self.window_shake_ratios[-1] - self.window_shake_ratios[strack.last_track_frame_id-1]) / (strack.frame_id - strack.last_track_frame_id)
             max_insert_frames = self.max_num_insframe * np.exp(-np.abs(strack.mean[4])-np.abs(strack.mean[5])-mean_shake_ratio)
             if strack.frame_id - strack.last_track_frame_id >= max_insert_frames:
                 continue
+
             insert_frame[strack.track_id] = []
+
+            def func(l):
+                return 1
             map_mat = np.linalg.inv(self.matrixs[strack.last_track_frame_id-1])*self.matrixs[-1]
             tmp_tlbr = self.compute_mapped_tlbr(strack.tlbr,np.linalg.inv(map_mat))
-
             for frame in range(strack.last_track_frame_id+1,strack.frame_id):
                 tlbr = strack.last_track_tlbr + (frame - strack.last_track_frame_id) / (strack.frame_id  - strack.last_track_frame_id) * (tmp_tlbr - strack.tlbr)
                 map_mat = np.linalg.inv(self.matrixs[strack.last_track_frame_id - 1]) * self.matrixs[frame-1]
                 tlwh = STrack.tlbr_to_tlwh(self.compute_mapped_tlbr(tlbr,map_mat))
                 insert_frame[strack.track_id].append((tlwh,frame))
+
+            map_mat = np.linalg.inv(self.matrixs[strack.last_track_frame_id - 1]) * self.matrixs[-1]
+            tmp_tlbr = self.compute_mapped_tlbr(strack.last_track_tlbr, map_mat)
+            for i,frame in enumerate(range(strack.frame_id-1,strack.last_track_frame_id,-1)):
+                tlbr = strack.tlbr - (strack.frame_id - frame) / (strack.frame_id  - strack.last_track_frame_id) * (strack.tlbr - tmp_tlbr)
+                map_mat = np.linalg.inv(self.matrixs[frame-1]) * self.matrixs[self.frame_id-1]
+                tlwh = STrack.tlbr_to_tlwh(self.compute_mapped_tlbr(tlbr,np.linalg.inv(map_mat)))
+                w1 = func(frame - strack.last_track_frame_id)
+                w2 = func(strack.frame_id - frame)
+                tlwh = (insert_frame[strack.track_id][-1-i][0]*w1 + tlwh*w2) / (w1 + w2)
+                insert_frame[strack.track_id][-1 - i] = (tlwh,frame)
+
+
             strack.last_track_frame_id = strack.frame_id
             strack.last_track_tlbr = strack.tlbr
         return  insert_frame
@@ -628,14 +638,11 @@ class JDETracker(object):
         elif feature == 'loss_embedding':
             ioudists = matching.iou_distance(tracks, dets)
             dists = matching.embedding_distance(tracks, dets)
+
             for i in range(len(tracks)):
                 for j in range(len(dets)):
                     if ioudists[i,j] <= 0.8:
-                        if tracks[i].tracklet_len < 1:
-                            continue
-                        x = F.normalize(torch.from_numpy(tracks[i].curr_feat),2,-1).cuda()
-                        y = F.normalize(torch.from_numpy(dets[j].curr_feat),2,-1).unsqueeze(-1).cuda()
-                        dists[i,j] = max(0,1 - torch.matmul(x,y).mean().cpu().item())
+                        continue
                     else:
                         dists[i,j] = np.inf
             dists = matching.fuse_motion(self.kalman_filter, dists, tracks, dets)
@@ -792,3 +799,6 @@ def remove_fp_stracks(stracksa, n_frame=10):
         if num < n_frame:
             remain.append(t)
     return remain
+
+
+

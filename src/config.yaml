@@ -11,26 +11,26 @@ train:
   label_pth: /home/hust/yly/Dataset/all.json
   feat_extract_model_path: /home/hust/yly/Model/mix_mot17_half_dla34.pth
   down_rate: 4
-  max_len: 20
+  max_len: 30
   device: cuda
   base_lr: 0.001
   start_epoch: 1
-  batch_size: 196
+  batch_size: 160
   num_workers: 1
   load_model: ''
-  num_epochs: 100
+  num_epochs: 50
   save_all: False
   lr_step:
-    - 25
-    - 50
-    - 75
+    - 15
+    - 30
+    - 45
   save_dir: /home/hust/yly/Model
   num_iters: -1
   logdir: /home/hust/yly/log
   mode: record
   file: /home/hust/yly/featmap.json
-  min_frames: 10
-  max_frames: 20
+  min_frames: 30
+  max_frames: 30
 val:
   val_intervals: 25
   device: cuda
@@ -40,6 +40,6 @@ val:
   label_pth: /home/hust/yly/Dataset/mot15.json
   batch_size: 16
   file: /home/hust/yly/featmapmot15.json
-  min_frames: 5
-  max_frames: 30
+  min_frames: 30
+  max_frames: 30 
 

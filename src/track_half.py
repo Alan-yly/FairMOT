@@ -12,6 +12,7 @@ import motmetrics as mm
 import numpy as np
 import torch
 from lib.tracker.tracker import JDETracker
+from lib.tracker.GSI import GSInterpolation
 from lib.tracker.byte_tracker import BYTETracker
 from lib.tracking_utils import visualization as vis
 from lib.tracking_utils.log import logger
@@ -104,6 +105,10 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
                 id = tracker.id_map[id]
             result[2][i] = id
     write_results(result_filename, results, data_type)
+    GSInterpolation(path_in=result_filename,
+                path_out=result_filename,
+                interval=20,
+                tau=10)
     #write_results_score(result_filename, results, data_type)
     return frame_id, timer.average_time, timer.calls
 
