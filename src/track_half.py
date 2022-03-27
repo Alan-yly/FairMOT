@@ -109,7 +109,7 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
             result[2][i] = id
     write_results(result_filename, results, data_type)
     tracker.record_feat()
-    # AFLink(result_filename,result_filename,0.2,(0,30)).link()
+    AFLink(result_filename,result_filename,0.4,(0,30)).link()
     GSInterpolation(path_in=result_filename,
                 path_out=result_filename,
                 interval=20,

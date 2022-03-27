@@ -240,10 +240,7 @@ class JDETracker(object):
 
         '''transformer'''
         config = {'src_vocab':128,'trg_vocab':128,'d_model':128,'N':6,'heads':8,'dropout':0.2}
-        self.compare_net = Mynetwork(config)
-        load_model(self.compare_net,'/home/hust/yly/Model/model_last.pth')
-        self.compare_net.to(opt.device)
-        self.compare_net.eval()
+
         self.id_map = {}
         self.init_tracks = {}
         self.min_frames = 10
@@ -678,82 +675,82 @@ class JDETracker(object):
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
         return [tracks[i] for i in u_track],[dets[i] for i in u_detection if i not in delete_dets]
-    def re_match(self,threshold):
-        compare_tracked_track = []
-        for strack in self.tracked_stracks:
-            if strack.tracklet_len < self.min_frames or strack.sum_track_len > self.max_frames:
-                continue
-            feature_tensor = torch.zeros((1,self.max_frames,128)).float().cuda()
-            mask = torch.zeros((1,self.max_frames)).float().cuda()
-            for i in range(len(strack.features)):
-                feature_tensor[0,i,:] = torch.from_numpy(strack.features[i]).cuda()
-                mask[0,i] = 1
-            compare_tracked_track.append((feature_tensor, mask,strack))
-
-        compare_losted_track = []
-        for i,strack in enumerate(self.lost_stracks):
-            if strack.tracklet_len < self.max_frames:
-                continue
-            feature_tensor = torch.zeros((1, self.max_frames, 128)).float().cuda()
-            mask = torch.zeros((1, self.max_frames)).float().cuda()
-            for i in range(len(strack.features)):
-                feature_tensor[0,i,:] = torch.from_numpy(strack.features[i]).cuda()
-                mask[0, i] = 1
-            compare_losted_track.append((feature_tensor, mask,strack))
-
-        dist = np.ones((len(compare_losted_track), len(compare_tracked_track)))
-        with torch.no_grad():
-            for i in range(len(compare_losted_track)):
-                for j in range(len(compare_tracked_track)):
-                    src, src_mask,losted_track = compare_losted_track[i]
-                    trg, trg_mask,tracked_track = compare_tracked_track[j]
-                    tlbr = losted_track.tlbr
-                    # v1 = losted_track.tlbr - losted_track.last_track_tlbr
-                    # v2 = v1.copy()
-                    # v2[[0,2]] = -v2[[0,2]]
-                    # tlbr[0] = min(
-                    #     [(losted_track.last_track_tlbr + v1)[0],(losted_track.last_track_tlbr -v1)[0],(losted_track.last_track_tlbr+v2)[0],
-                    #                (losted_track.last_track_tlbr-v2)[0]])
-                    # tlbr[1] = min(
-                    #     [(losted_track.last_track_tlbr + v1)[1], (losted_track.last_track_tlbr - v1)[1], (losted_track.last_track_tlbr + v2)[1],
-                    #      (losted_track.last_track_tlbr - v2)[1]])
-                    # tlbr[2] = max(
-                    #     [(losted_track.last_track_tlbr + v1)[2], (losted_track.last_track_tlbr - v1)[2], (losted_track.last_track_tlbr + v2)[2],
-                    #      (losted_track.last_track_tlbr - v2)[2]])
-                    # tlbr[3] = max(
-                    #     [(losted_track.last_track_tlbr + v1)[3], (losted_track.last_track_tlbr - v1)[3], (losted_track.last_track_tlbr + v2)[3],
-                    #      (losted_track.last_track_tlbr - v2)[3]])
-                    ious = bbox_ious(
-                        np.ascontiguousarray([tlbr], dtype=np.float),
-                        np.ascontiguousarray([tracked_track.tlbr], dtype=np.float)
-                    )[0,0]
-                    if losted_track.last_track_frame_id < tracked_track.begin_frame_id and ious > 0 :
-                        dist[i, j] = self.compare_net(src, trg, src_mask, trg_mask)
-        matches, _, _ =  matching.linear_assignment(dist, thresh=threshold)
-        refined_tracks = []
-        removed_stracks = []
-        self.len_rematch += len(matches)
-        for ilosted, itracked in matches:
-            losted_track = compare_losted_track[ilosted][2]
-            tracked_track = compare_tracked_track[itracked][2]
-            losted_track.features.extend(tracked_track.features)
-            tracked_track.features = losted_track.features
-            tracked_track.begin_frame_id = losted_track.begin_frame_id
-            tracked_track.sum_track_len += losted_track.sum_track_len
-            losted_track.re_activate(tracked_track, tracked_track.begin_frame_id, new_id=False)
-            refined_tracks.append(losted_track)
-            id = losted_track.track_id
-            if id in self.id_map.keys():
-                id = self.id_map[id]
-            self.id_map[tracked_track.track_id] = id
-            losted_track.mark_removed()
-            removed_stracks.append(strack)
-
-        self.removed_stracks.extend(removed_stracks)
-        self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
-        self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
-        self.insert_frame_lost_track(refined_tracks)
-        return {}
+    # def re_match(self,threshold):
+    #     compare_tracked_track = []
+    #     for strack in self.tracked_stracks:
+    #         if strack.tracklet_len < self.min_frames or strack.sum_track_len > self.max_frames:
+    #             continue
+    #         feature_tensor = torch.zeros((1,self.max_frames,128)).float().cuda()
+    #         mask = torch.zeros((1,self.max_frames)).float().cuda()
+    #         for i in range(len(strack.features)):
+    #             feature_tensor[0,i,:] = torch.from_numpy(strack.features[i]).cuda()
+    #             mask[0,i] = 1
+    #         compare_tracked_track.append((feature_tensor, mask,strack))
+    #
+    #     compare_losted_track = []
+    #     for i,strack in enumerate(self.lost_stracks):
+    #         if strack.tracklet_len < self.max_frames:
+    #             continue
+    #         feature_tensor = torch.zeros((1, self.max_frames, 128)).float().cuda()
+    #         mask = torch.zeros((1, self.max_frames)).float().cuda()
+    #         for i in range(len(strack.features)):
+    #             feature_tensor[0,i,:] = torch.from_numpy(strack.features[i]).cuda()
+    #             mask[0, i] = 1
+    #         compare_losted_track.append((feature_tensor, mask,strack))
+    #
+    #     dist = np.ones((len(compare_losted_track), len(compare_tracked_track)))
+    #     with torch.no_grad():
+    #         for i in range(len(compare_losted_track)):
+    #             for j in range(len(compare_tracked_track)):
+    #                 src, src_mask,losted_track = compare_losted_track[i]
+    #                 trg, trg_mask,tracked_track = compare_tracked_track[j]
+    #                 tlbr = losted_track.tlbr
+    #                 # v1 = losted_track.tlbr - losted_track.last_track_tlbr
+    #                 # v2 = v1.copy()
+    #                 # v2[[0,2]] = -v2[[0,2]]
+    #                 # tlbr[0] = min(
+    #                 #     [(losted_track.last_track_tlbr + v1)[0],(losted_track.last_track_tlbr -v1)[0],(losted_track.last_track_tlbr+v2)[0],
+    #                 #                (losted_track.last_track_tlbr-v2)[0]])
+    #                 # tlbr[1] = min(
+    #                 #     [(losted_track.last_track_tlbr + v1)[1], (losted_track.last_track_tlbr - v1)[1], (losted_track.last_track_tlbr + v2)[1],
+    #                 #      (losted_track.last_track_tlbr - v2)[1]])
+    #                 # tlbr[2] = max(
+    #                 #     [(losted_track.last_track_tlbr + v1)[2], (losted_track.last_track_tlbr - v1)[2], (losted_track.last_track_tlbr + v2)[2],
+    #                 #      (losted_track.last_track_tlbr - v2)[2]])
+    #                 # tlbr[3] = max(
+    #                 #     [(losted_track.last_track_tlbr + v1)[3], (losted_track.last_track_tlbr - v1)[3], (losted_track.last_track_tlbr + v2)[3],
+    #                 #      (losted_track.last_track_tlbr - v2)[3]])
+    #                 ious = bbox_ious(
+    #                     np.ascontiguousarray([tlbr], dtype=np.float),
+    #                     np.ascontiguousarray([tracked_track.tlbr], dtype=np.float)
+    #                 )[0,0]
+    #                 if losted_track.last_track_frame_id < tracked_track.begin_frame_id and ious > 0 :
+    #                     dist[i, j] = self.compare_net(src, trg, src_mask, trg_mask)
+    #     matches, _, _ =  matching.linear_assignment(dist, thresh=threshold)
+    #     refined_tracks = []
+    #     removed_stracks = []
+    #     self.len_rematch += len(matches)
+    #     for ilosted, itracked in matches:
+    #         losted_track = compare_losted_track[ilosted][2]
+    #         tracked_track = compare_tracked_track[itracked][2]
+    #         losted_track.features.extend(tracked_track.features)
+    #         tracked_track.features = losted_track.features
+    #         tracked_track.begin_frame_id = losted_track.begin_frame_id
+    #         tracked_track.sum_track_len += losted_track.sum_track_len
+    #         losted_track.re_activate(tracked_track, tracked_track.begin_frame_id, new_id=False)
+    #         refined_tracks.append(losted_track)
+    #         id = losted_track.track_id
+    #         if id in self.id_map.keys():
+    #             id = self.id_map[id]
+    #         self.id_map[tracked_track.track_id] = id
+    #         losted_track.mark_removed()
+    #         removed_stracks.append(strack)
+    #
+    #     self.removed_stracks.extend(removed_stracks)
+    #     self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
+    #     self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
+    #     self.insert_frame_lost_track(refined_tracks)
+    #     return {}
     def __del__(self):
         print(self.len_rematch)
     def record_feat(self):
