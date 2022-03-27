@@ -8,7 +8,7 @@ model:
   dis: 0.5
   map_com_itels: 1
 train:
-  label_pth: /home/hust/yly/Dataset/all.json
+  label_pth: /home/hust/yly/Dataset/mot17_half.json
   feat_extract_model_path: /home/hust/yly/Model/mix_mot17_half_dla34.pth
   down_rate: 4
   max_len: 30
@@ -18,7 +18,7 @@ train:
   batch_size: 196
   num_workers: 1
   load_model: ''
-  num_epochs: 50
+  num_epochs: 100
   save_all: False
   lr_step:
     - 25
@@ -41,5 +41,5 @@ val:
   batch_size: 16
   file: /home/hust/yly/featmapmot15.json
   min_frames: 30
-  max_frames: 30 
+  max_frames: 30
 

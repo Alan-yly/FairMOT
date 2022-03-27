@@ -121,16 +121,16 @@ class Dataset():  # for training
         return self.nF
     def get_target_feat(self,img_pth,tlbr,id):
         id = img_pth + '-'+str(id)
-        # if id in self.recoder.keys():
-        #     return torch.from_numpy(np.array(self.recoder[id])).float().to(self.device)
+        if id in self.recoder.keys():
+            return torch.from_numpy(np.array(self.recoder[id])).float().to(self.device)
         with torch.no_grad():
             img = cv2.imread(img_pth)
             w = tlbr[2] - tlbr[0]
             h = tlbr[3] - tlbr[1]
-            tlbr[0] += (random.random() - 0.5) * 0.1 * w
-            tlbr[1] += (random.random() - 0.5) * 0.1 * h
-            tlbr[2] += (random.random() - 0.5) * 0.1 * w
-            tlbr[3] += (random.random() - 0.5) * 0.1 * h
+            # tlbr[0] += (random.random() - 0.5) * 0.1 * w
+            # tlbr[1] += (random.random() - 0.5) * 0.1 * h
+            # tlbr[2] += (random.random() - 0.5) * 0.1 * w
+            # tlbr[3] += (random.random() - 0.5) * 0.1 * h
             def letterbox(img, height=608, width=1088,
                           color=(127.5, 127.5, 127.5)):  # resize a rectangular image to a padded rectangular
                 shape = img.shape[:2]  # shape = [height, width]
@@ -164,7 +164,7 @@ class Dataset():  # for training
             x = (tlbr[0] + tlbr[2]) /2
             y = (tlbr[1] + tlbr[3]) /2
             feat = torchvision.ops.roi_align(id_feature,torch.tensor([[0,x,y,x,y]]).float().to(self.device),1).squeeze()
-            # self.recoder[id] = np.array(feat.cpu()).tolist()
+            self.recoder[id] = np.array(feat.cpu()).tolist()
             return feat
     # def get_target_feat(self,img_pth,tlbr,id):
     #     with torch.no_grad():

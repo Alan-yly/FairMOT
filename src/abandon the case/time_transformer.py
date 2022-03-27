@@ -3,6 +3,52 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import torchvision
+import torchvision.transforms as transforms
+from PIL import  Image
+def img_process(x,img_size:tuple,aug):
+    if aug:
+        f = torchvision.transforms.Compose([
+            Image.fromarray,
+            torchvision.transforms.RandomHorizontalFlip(p=0.5),
+            torchvision.transforms.RandomResizedCrop(img_size, scale=(0.64, 1), ratio=(0.4, 0.66666)),
+            torchvision.transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            torchvision.transforms.RandomErasing()
+        ])
+    else:
+        f = torchvision.transforms.Compose([
+            Image.fromarray,
+            torchvision.transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+    x = f(x)
+    return x
+class FeatExtractor(nn.Module):
+    def __init__(self,config):
+        super(FeatExtractor, self).__init__()
+        self.base_model = torchvision.models.resnet50(pretrained=config['pretrained'],progress=config['progress'])
+        self.device = config['device']
+    def _forward_impl(self, x):
+        B,L,C,H,W = x.shape
+        x = x.reshape(-1,C,H,W)
+        # See note [TorchScript super()]
+        x = self.base_model.conv1(x)
+        x = self.base_model.bn1(x)
+        x = self.base_model.relu(x)
+        x = self.base_model.maxpool(x)
+
+        x = self.base_model.layer1(x)
+        x = self.base_model.layer2(x)
+        x = self.base_model.layer3(x)
+        x = self.base_model.layer4(x)
+        x = self.base_model.avgpool(x)
+        x = x.reshape(B,L,-1)
+        return  x
+    def forward(self, x):
+        return self._forward_impl(x)
+
+
 class Mynetwork(nn.Module):
     def __init__(self,config):
         super(Mynetwork, self).__init__()
@@ -12,12 +58,15 @@ class Mynetwork(nn.Module):
         self.N = config['N']
         self.heads = config['heads']
         self.dropout = config['dropout']
+        self.featextractor = FeatExtractor(config)
         self.encoder = transformer.Models.Encoder(self.src_vocab,self.d_model, self.N, self.heads, self.dropout)
         self.decoder = transformer.Models.Decoder(self.trg_vocab, self.d_model, self.N, self.heads, self.dropout)
         self.out = nn.Linear(self.d_model, self.trg_vocab)
         # self.selfencoder = transformer.Models.Encoder(self.src_vocab,self.d_model, self.N, self.heads, self.dropout)
         # self.cmpout = nn.Linear(self.d_model,self.trg_vocab)
     def forward(self, src, trg, src_mask, trg_mask):
+        src = self.featextractor(src)
+        trg = self.featextractor(trg)
         def func(src,trg,src_mask,trg_mask):
             e_outputs = self.encoder(src, src_mask)
             d_output = self.decoder(trg, e_outputs, src_mask, trg_mask)
@@ -25,10 +74,10 @@ class Mynetwork(nn.Module):
             output = F.normalize(output, 2, -1)
             return  output
 
-        out1 = func(trg, src, trg_mask, src_mask)
-        out2 = func(src,trg,src_mask,trg_mask)
-        #out1 = F.normalize(src,2,-1)
-        #out2 = F.normalize(trg,2,-1)
+        # out1 = func(trg, src, trg_mask, src_mask)
+        # out2 = func(src,trg,src_mask,trg_mask)
+        out1 = F.normalize(src,2,-1)
+        out2 = F.normalize(trg,2,-1)
         mat = torch.matmul(out1,out2.transpose(2,1))
         src_mask = src_mask.unsqueeze(-1)
         trg_mask = trg_mask.unsqueeze(1)
@@ -43,7 +92,6 @@ class Myloss(nn.Module):
         super(Myloss, self).__init__()
         self.dis = model_config['dis']
         self.loss_dict = {'loss':None,'p':None,'n':None}
-        self.map_com_itels = model_config['map_com_itels']
         self.ps = []
         self.ns = []
         self.num = 0

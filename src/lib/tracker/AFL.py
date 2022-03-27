@@ -16,6 +16,9 @@ from ..mywork.mynetwork import Mynetwork
 from ..models.model import create_model, load_model
 import json
 INFINITY = 1e5
+from sklearn.gaussian_process.kernels import RBF
+from sklearn.gaussian_process import GaussianProcessRegressor as GPR
+
 
 class AFLink:
     def __init__(self, path_in, path_out,thres,thrT:tuple):
@@ -64,6 +67,7 @@ class AFLink:
         mask1 = torch.ones(1,max_len).cuda()
         feat2 = torch.zeros(1,max_len,128).cuda()
         mask2 = torch.ones(1,max_len).cuda()
+
         for i,feat in enumerate(track1[-max_len:]):
             feat1[0,i] = torch.from_numpy(feat[1]).cuda()
             if (feat[1] == np.zeros(128)).all():
@@ -72,8 +76,35 @@ class AFLink:
             feat2[0,i] = torch.from_numpy(feat[1]).cuda()
             if (feat[1] == np.zeros(128)).all():
                 mask2[0,i] = 0
+
+        # f1 = track1[-max_len:, 0].reshape(-1, 1)
+        # x1 = track1[-max_len:, 2].reshape(-1, 1)
+        # y1 = track1[-max_len:, 3].reshape(-1, 1)
+        # f2 = track2[:max_len, 0].reshape(-1, 1)
+        # x2 = track2[:max_len, 2].reshape(-1, 1)
+        # y2 = track2[:max_len, 3].reshape(-1, 1)
+        # tau = 10
+        # len_scale = np.clip(tau * np.log(tau ** 3 / max_len), tau ** -1, tau ** 2)
+        # gpr = GPR(RBF(len_scale, 'fixed'))
+        # gpr.fit(f1,x1)
+        # x2p = gpr.predict([[f2[0,0]]])
+        # gpr.fit(f1, y1)
+        # y2p = gpr.predict([[f2[0, 0]]])
+        # gpr.fit(f2, x2)
+        # x1p = gpr.predict([[f1[-1, 0]]])
+        # gpr.fit(f2, y2)
+        # y1p = gpr.predict([[f1[-1, 0]]])
+
+        def f(x, y):
+            import math
+            return math.sqrt(x ** 2 + y ** 2)
+
+        score = (f(x1[-1,0] - x1p , y1[-1,0] - y1p) + f(x2[0,0]-x2p,y2[0,0]-y2p) ) / 2
+        # if score > 150:
+        #     return INFINITY
         with torch.no_grad():
             score = self.model(feat1,feat2,mask1,mask2).squeeze().cpu().item()
+        print(score)
         return score
 
     # 去重复: 即去除同一帧同一ID多个框的情况
