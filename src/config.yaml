@@ -2,8 +2,8 @@ model:
   src_vocab: 128
   trg_vocab: 128
   d_model: 128
-  N: 6
-  heads: 8
+  N: 8
+  heads: 1
   dropout: 0.2
   dis: 0.5
   map_com_itels: 1
@@ -15,10 +15,10 @@ train:
   device: cuda
   base_lr: 0.001
   start_epoch: 1
-  batch_size: 196
+  batch_size: 192
   num_workers: 1
   load_model: ''
-  num_epochs: 50
+  num_epochs: 100
   save_all: False
   lr_step:
     - 25

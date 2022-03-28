@@ -250,6 +250,8 @@ class JDETracker(object):
         '''AFL'''
         self.feat_record = defaultdict(dict)
         self.start_frame_id = None
+
+        self.use_mat = False
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
         dets = dets.reshape(1, -1, dets.shape[2])
@@ -588,6 +590,8 @@ class JDETracker(object):
             # map_matrix = self.orb_map_matrix(img,rescale_ratio)
         else:
             map_matrix = np.matrix(self.recorder.get_mat())
+        if self.use_mat == False:
+            map_matrix = np.eye(3)
         self.map_matrix = self.map_matrix * map_matrix
         self.matrixs.append(self.map_matrix)
         if len(self.window_shake_ratios) == 0:

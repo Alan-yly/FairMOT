@@ -13,7 +13,7 @@ from os.path import join, exists
 from collections import defaultdict
 from scipy.optimize import linear_sum_assignment
 from ..mywork.mynetwork import Mynetwork
-from ..models.model import create_model, load_model
+from ..models.model import create_model, load_model,save_model
 import json
 INFINITY = 1e5
 from sklearn.gaussian_process.kernels import RBF
@@ -24,8 +24,11 @@ class AFLink:
     def __init__(self, path_in, path_out,thres,thrT:tuple):
         self.thrP = thres
         self.thrT =thrT
-        config = {'src_vocab':128,'trg_vocab':128,'d_model':128,'N':6,'heads':8,'dropout':0.2}
+        import yaml
+        config = list(yaml.safe_load_all(open('config.yaml')))[0]['model']
         self.model = Mynetwork(config)        # 预测模型
+
+        load_model(self.model,'/home/hust/yly/Model/model_25.pth')
         self.path_out = path_out  # 结果保存路径
         self.track = np.loadtxt(path_in, delimiter=',')
         self.model.cuda()
@@ -95,11 +98,11 @@ class AFLink:
         # gpr.fit(f2, y2)
         # y1p = gpr.predict([[f1[-1, 0]]])
 
-        def f(x, y):
-            import math
-            return math.sqrt(x ** 2 + y ** 2)
-
-        score = (f(x1[-1,0] - x1p , y1[-1,0] - y1p) + f(x2[0,0]-x2p,y2[0,0]-y2p) ) / 2
+        # def f(x, y):
+        #     import math
+        #     return math.sqrt(x ** 2 + y ** 2)
+        #
+        # score = (f(x1[-1,0] - x1p , y1[-1,0] - y1p) + f(x2[0,0]-x2p,y2[0,0]-y2p) ) / 2
         # if score > 150:
         #     return INFINITY
         with torch.no_grad():

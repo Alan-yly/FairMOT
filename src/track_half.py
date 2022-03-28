@@ -53,6 +53,8 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
     if save_dir:
         mkdir_if_missing(save_dir)
     tracker = JDETracker(opt, frame_rate=frame_rate)
+    use_mat = {'MOT17-02-SDP':False,'MOT17-04-SDP':False,"MOT17-05-SDP":True,"MOT17-09-SDP":False,"MOT17-10-SDP":True,"MOT17-11-SDP":True,"MOT17-13-SDP":True}
+    tracker.use_mat = use_mat[seq]
 
     tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','get')
 

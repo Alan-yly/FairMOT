@@ -14,21 +14,21 @@ class Mynetwork(nn.Module):
         self.dropout = config['dropout']
         self.encoder = transformer.Models.Encoder(self.src_vocab,self.d_model, self.N, self.heads, self.dropout)
         self.decoder = transformer.Models.Decoder(self.trg_vocab, self.d_model, self.N, self.heads, self.dropout)
+        self.feadforward = transformer.Layers.EncoderLayer(self.d_model,self.heads)
         self.out = nn.Linear(self.d_model, self.trg_vocab)
-        # self.selfencoder = transformer.Models.Encoder(self.src_vocab,self.d_model, self.N, self.heads, self.dropout)
-        # self.cmpout = nn.Linear(self.d_model,self.trg_vocab)
     def forward(self, src, trg, src_mask, trg_mask):
         def func(src,trg,src_mask,trg_mask):
-            e_outputs = self.encoder(src, src_mask)
-            d_output = self.decoder(trg, e_outputs, src_mask, trg_mask)
+            e_outputs = self.encoder(src, src_mask) + src
+            trg = self.feadforward(trg,trg_mask) + trg
+            d_output = self.decoder(trg, e_outputs, src_mask, trg_mask) + trg
             output = self.out(d_output) + d_output
             output = F.normalize(output, 2, -1)
             return  output
 
         out1 = func(trg, src, trg_mask, src_mask)
         out2 = func(src,trg,src_mask,trg_mask)
-        #out1 = F.normalize(src,2,-1)
-        #out2 = F.normalize(trg,2,-1)
+        # out1 = F.normalize(src,2,-1)
+        # out2 = F.normalize(trg,2,-1)
         mat = torch.matmul(out1,out2.transpose(2,1))
         src_mask = src_mask.unsqueeze(-1)
         trg_mask = trg_mask.unsqueeze(1)
