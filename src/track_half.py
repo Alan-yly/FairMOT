@@ -12,6 +12,8 @@ import motmetrics as mm
 import numpy as np
 import torch
 from lib.tracker.tracker import JDETracker
+# from lib.tracker.multitracker import JDETracker
+# from lib.tracker.mot20tracker import JDETracker
 from lib.tracker.GSI import GSInterpolation
 from lib.tracker.AFL import AFLink
 from lib.tracker.byte_tracker import BYTETracker
@@ -53,16 +55,30 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
     if save_dir:
         mkdir_if_missing(save_dir)
     tracker = JDETracker(opt, frame_rate=frame_rate)
-    use_mat = {'MOT17-02-SDP':False,'MOT17-04-SDP':False,"MOT17-05-SDP":True,"MOT17-09-SDP":False,"MOT17-10-SDP":True,"MOT17-11-SDP":True,"MOT17-13-SDP":True}
+    use_mat = {'MOT17-02-SDP': False, 'MOT17-04-SDP': False, "MOT17-05-SDP": True, "MOT17-09-SDP": False,
+               "MOT17-10-SDP": True, "MOT17-11-SDP": True, "MOT17-13-SDP": True,
+               'MOT17-01-SDP': False, 'MOT17-03-SDP': False, "MOT17-06-SDP": True, "MOT17-07-SDP": True,
+               "MOT17-08-SDP": False, "MOT17-12-SDP": True, "MOT17-14-SDP": True,
+               'MOT17-01-FRCNN': False, 'MOT17-03-FRCNN': False, "MOT17-06-FRCNN": True, "MOT17-07-FRCNN": True,
+               "MOT17-08-FRCNN": False, "MOT17-12-FRCNN": True, "MOT17-14-FRCNN": True,
+               'MOT17-01-DPM': False, 'MOT17-03-DPM': False, "MOT17-06-DPM": True, "MOT17-07-DPM": True,
+               "MOT17-08-DPM": False, "MOT17-12-DPM": True, "MOT17-14-DPM": True,
+               "MOT20-01": False, "MOT20-02": False, "MOT20-03": False,"MOT20-04": False,
+               "MOT20-05": False, "MOT20-06": False, "MOT20-07": False, "MOT20-08": False,
+               'MOT16-02': False, 'MOT16-04': False, "MOT16-05": True, "MOT16-09": False,
+               "MOT16-10": True, "MOT16-11": True, "MOT16-13": True,
+               'MOT16-01': False, 'MOT16-03': False, "MOT16-06": True, "MOT16-07": True,
+               "MOT16-08": False, "MOT16-12": True, "MOT16-14": True,
+               }
     tracker.use_mat = use_mat[seq]
 
-    tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','get')
+    tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','record')
 
     timer = Timer()
     results = []
     len_all = len(dataloader)
-    start_frame = int(len_all / 2)
-    frame_id = int(len_all / 2)
+    start_frame = 0
+    frame_id = start_frame
     tracker.start_frame_id = start_frame
     for i, (path, img, img0) in enumerate(dataloader):
         if i < start_frame:
@@ -109,9 +125,13 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
             if id in tracker.id_map.keys():
                 id = tracker.id_map[id]
             result[2][i] = id
+
+
     write_results(result_filename, results, data_type)
-    tracker.record_feat()
-    AFLink(result_filename,result_filename,0.4,(0,30)).link()
+
+    afl = AFLink(result_filename,result_filename,0.4,(0,30))
+    afl.feat = tracker.feat_record
+    afl.link()
     GSInterpolation(path_in=result_filename,
                 path_out=result_filename,
                 interval=20,
@@ -177,16 +197,8 @@ if __name__ == '__main__':
     torch.cuda.set_device(0)
     opt = opts().init()
     print(opt)
-    if not opt.val_mot16:
-        seqs_str = '''KITTI-13
-                      KITTI-17
-                      ADL-Rundle-6
-                      PETS09-S2L1
-                      TUD-Campus
-                      TUD-Stadtmitte'''
-        #seqs_str = '''TUD-Campus'''
-        data_root = os.path.join(opt.data_dir, 'MOT15/images/train')
-    else:
+
+    if  opt.val_mot16:
         seqs_str = '''MOT16-02
                       MOT16-04
                       MOT16-05
@@ -194,7 +206,7 @@ if __name__ == '__main__':
                       MOT16-10
                       MOT16-11
                       MOT16-13'''
-        data_root = os.path.join(opt.data_dir, 'MOT16/train')
+        data_root = os.path.join('/home/hust/yly/Dataset', 'MOT16/train')
     if opt.test_mot16:
         seqs_str = '''MOT16-01
                       MOT16-03
@@ -203,8 +215,7 @@ if __name__ == '__main__':
                       MOT16-08
                       MOT16-12
                       MOT16-14'''
-        seqs_str = '''MOT16-06 MOT16-07 MOT16-08'''
-        data_root = os.path.join(opt.data_dir, 'MOT16/test')
+        data_root = os.path.join('/home/hust/yly/Dataset', 'MOT16/test')
     if opt.test_mot15:
         seqs_str = '''ADL-Rundle-1
                       ADL-Rundle-3
@@ -219,14 +230,28 @@ if __name__ == '__main__':
                       Venice-1'''
         data_root = os.path.join(opt.data_dir, 'MOT15/images/test')
     if opt.test_mot17:
-        seqs_str = '''MOT17-01-SDP
+        seqs_str = '''MOT17-01-DPM
+                      MOT17-03-DPM
+                      MOT17-06-DPM
+                      MOT17-07-DPM
+                      MOT17-08-DPM
+                      MOT17-12-DPM
+                      MOT17-14-DPM
+                      MOT17-01-FRCNN
+                      MOT17-03-FRCNN
+                      MOT17-06-FRCNN
+                      MOT17-07-FRCNN
+                      MOT17-08-FRCNN
+                      MOT17-12-FRCNN
+                      MOT17-14-FRCNN
+                      MOT17-01-SDP
                       MOT17-03-SDP
                       MOT17-06-SDP
                       MOT17-07-SDP
                       MOT17-08-SDP
                       MOT17-12-SDP
                       MOT17-14-SDP'''
-        data_root = os.path.join(opt.data_dir, 'MOT17/test')
+        data_root = os.path.join('/home/hust/yly/Dataset', 'MOT17/test')
     if opt.val_mot17:
         seqs_str = '''MOT17-02-SDP
                       MOT17-04-SDP
@@ -259,14 +284,14 @@ if __name__ == '__main__':
                       MOT20-03
                       MOT20-05
                       '''
-        data_root = os.path.join(opt.data_dir, 'MOT20/images/train')
+        data_root = os.path.join('/home/hust/yly/Dataset', 'MOT20/train')
     if opt.test_mot20:
         seqs_str = '''MOT20-04
                       MOT20-06
                       MOT20-07
                       MOT20-08
                       '''
-        data_root = os.path.join(opt.data_dir, 'MOT20/images/test')
+        data_root = os.path.join('/home/hust/yly/Dataset', 'MOT20/test')
     seqs = [seq.strip() for seq in seqs_str.split()]
 
     main(opt,

@@ -17,8 +17,8 @@ from ..tracking_utils.log import logger
 from ..tracking_utils.utils import *
 from ..utils.image import get_affine_transform
 from ..utils.post_process import ctdet_post_process
-from lib.datasets.dataset.jde import letterbox
-from ..tracker import matching
+
+from . import matching
 
 from .basetrack import BaseTrack, TrackState
 
@@ -84,9 +84,6 @@ class STrack(BaseTrack):
         self.frame_id = frame_id
         self.start_frame = frame_id
 
-        self.last_track_frame_id = frame_id
-        self.last_track_tlbr = self.tlbr
-
     def re_activate(self, new_track, frame_id, new_id=False):
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, self.tlwh_to_xyah(new_track.tlwh)
@@ -99,8 +96,6 @@ class STrack(BaseTrack):
         self.frame_id = frame_id
         if new_id:
             self.track_id = self.next_id()
-
-
 
     def update(self, new_track, frame_id, update_feature=True):
         """
@@ -122,9 +117,6 @@ class STrack(BaseTrack):
         self.score = new_track.score
         if update_feature:
             self.update_features(new_track.curr_feat)
-
-        self.last_track_frame_id = frame_id
-        self.last_track_tlbr = self.tlbr
 
     @property
     def tlwh(self):
@@ -174,10 +166,6 @@ class STrack(BaseTrack):
 
     def __repr__(self):
         return 'OT_{}_({}-{})'.format(self.track_id, self.start_frame, self.end_frame)
-    def mark_lost(self,id,tlbr):
-        super().mark_lost()
-
-
 
 
 class JDETracker(object):
@@ -207,15 +195,6 @@ class JDETracker(object):
 
         self.kalman_filter = KalmanFilter()
 
-        """CMA Module compent"""
-        self.last_detect = None
-        self.map_matrix = np.matrix(np.eye(3))
-        self.matrixs = []
-        self.window_matrix = 0
-        self.last_img = None
-
-        """Insert Module compent"""
-        self.max_num_insframe = 10
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
         dets = dets.reshape(1, -1, dets.shape[2])
@@ -275,14 +254,13 @@ class JDETracker(object):
 
         dets = self.post_process(dets, meta)
         dets = self.merge_outputs([dets])[1]
+
         remain_inds = dets[:, 4] > self.opt.conf_thres
         dets = dets[remain_inds]
         id_feature = id_feature[remain_inds]
 
-
         # vis
         '''
-        _, ratio, padw, padh = letterbox(img0)
         for i in range(0, dets.shape[0]):
             bbox = dets[i][0:4]
             cv2.rectangle(img0, (bbox[0], bbox[1]),
@@ -290,20 +268,15 @@ class JDETracker(object):
                           (0, 255, 0), 2)
         cv2.imshow('dets', img0)
         cv2.waitKey(0)
-        cv2.destroyAllWindows()
         id0 = id0-1
         '''
 
-        """compute the map matrix"""
-        rescale_ratio = 0.25
-        img0 = cv2.resize(img0, None, None, rescale_ratio, rescale_ratio)
-        self.get_two_img_map_matrix(img0, rescale_ratio)
-        inv_map_matrix = np.linalg.inv(np.linalg.inv(self.matrixs[max(-self.window_matrix - 1,-len(self.matrixs))])*self.map_matrix)
-        detections = []
-        for i in range(len(dets)):
-            tlbr = self.compute_mapped_tlbr(dets[i, :4],inv_map_matrix)
-            detections.append(STrack(STrack.tlbr_to_tlwh(tlbr[:4]), dets[i][4], id_feature[i], 30))
-
+        if len(dets) > 0:
+            '''Detections'''
+            detections = [STrack(STrack.tlbr_to_tlwh(tlbrs[:4]), tlbrs[4], f, 30) for
+                          (tlbrs, f) in zip(dets[:, :5], id_feature)]
+        else:
+            detections = []
 
         ''' Add newly detected tracklets to tracked_stracks'''
         unconfirmed = []
@@ -316,13 +289,13 @@ class JDETracker(object):
 
         ''' Step 2: First association, with embedding'''
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
+        # Predict the current location with KF
+        #for strack in strack_pool:
+            #strack.predict()
         STrack.multi_predict(strack_pool)
-        for strack in strack_pool:
-            if len(self.matrixs) > self.window_matrix + 1:
-                self.compute_mapped_track(strack,np.linalg.inv(self.matrixs[-self.window_matrix-2])*self.matrixs[-self.window_matrix-1])
         dists = matching.embedding_distance(strack_pool, detections)
+        #dists = matching.iou_distance(strack_pool, detections)
         dists = matching.fuse_motion(self.kalman_filter, dists, strack_pool, detections)
-
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.4)
 
         for itracked, idet in matches:
@@ -337,7 +310,7 @@ class JDETracker(object):
 
         ''' Step 3: Second association, with IOU'''
         detections = [detections[i] for i in u_detection]
-        r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked or self.frame_id - strack_pool[i].last_track_frame_id < self.max_num_insframe]
+        r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
         dists = matching.iou_distance(r_tracked_stracks, detections)
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=0.5)
 
@@ -354,7 +327,7 @@ class JDETracker(object):
         for it in u_track:
             track = r_tracked_stracks[it]
             if not track.state == TrackState.Lost:
-                track.mark_lost(self.frame_id,track.tlbr)
+                track.mark_lost()
                 lost_stracks.append(track)
 
         '''Deal with unconfirmed tracks, usually tracks with only one beginning frame'''
@@ -393,148 +366,16 @@ class JDETracker(object):
         self.removed_stracks.extend(removed_stracks)
         self.tracked_stracks, self.lost_stracks = remove_duplicate_stracks(self.tracked_stracks, self.lost_stracks)
         # get scores of lost tracks
-        output_stracks = [track for track in self.tracked_stracks if track.is_activated]
+        output_stracks = [(track.tlwh,track.track_id) for track in self.tracked_stracks if track.is_activated]
 
         logger.debug('===========Frame {}=========='.format(self.frame_id))
         logger.debug('Activated: {}'.format([track.track_id for track in activated_starcks]))
         logger.debug('Refind: {}'.format([track.track_id for track in refind_stracks]))
         logger.debug('Lost: {}'.format([track.track_id for track in lost_stracks]))
         logger.debug('Removed: {}'.format([track.track_id for track in removed_stracks]))
-        out = []
-        for strack in output_stracks:
-            tlbr = self.compute_mapped_tlbr(strack.tlbr,np.linalg.inv(self.matrixs[max(-self.window_matrix - 1,-len(self.matrixs))])*self.map_matrix)
-            tlbr[2:] = tlbr[2:] - tlbr[:2]
-            out.append((tlbr,strack.track_id))
-        return out,self.insert_frame_lost_track(refind_stracks)
 
+        return output_stracks,{}
 
-    def compute_mapped_tlbr(self,tlbr,mat):
-        tl = np.matrix(np.hstack([tlbr[:2], np.ones(1)]))
-        tl = tl * mat
-        tl = np.squeeze(np.array(tl))[:-1]
-        tlbr[:2] = tl
-        br = np.matrix(np.hstack([tlbr[2:], np.ones(1)]))
-        br = br * mat
-        br = np.squeeze(np.array(br))[:-1]
-        tlbr[2:] = br
-        return tlbr
-    def compute_mapped_track(self,strack,mat):
-        mean_xyah = strack.mean.copy()
-        xy = np.matrix(np.hstack([mean_xyah[:2], np.ones(1)]))
-        xy = xy * mat
-        xy = np.squeeze(np.array(xy))[:-1]
-        mean_xyah[:2] = xy
-        vxy = np.matrix(np.hstack([mean_xyah[4:6], 0]))
-        vxy = vxy * mat
-        vxy = np.squeeze(np.array(vxy))[:-1]
-        mean_xyah[4:6] = vxy
-        strack.mean = mean_xyah
-    def orb_map_matrix(self,img,rescale_ratio):
-        def get_map_matrix(src_points, dist_points):
-            N = src_points.shape[0]
-            src_points = np.hstack([np.matrix(src_points.copy()), np.ones((N, 1))])  # shape [N,3]
-            dist_points = np.hstack([np.matrix(dist_points.copy()), np.ones((N, 1))])  # shape [N,3]
-            translation_matrix = np.linalg.inv(src_points.T * src_points) * src_points.T * dist_points
-            return translation_matrix
-        def orb_detet(img):
-            orb = cv2.ORB_create()
-            return orb.detectAndCompute(img, None)
-        def sift_detect(img):
-            # img = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-            sift = cv2.SIFT_create()
-            return sift.detectAndCompute(img,None)
-        # kp2,des2 = sift_detect(img)
-        kp2,des2 = orb_detet(img)
-        if self.last_detect is not None:
-            kp1, des1 = self.last_detect
-
-            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-            matches = bf.match(des1, des2)
-            goodMatch = sorted(matches, key=lambda x: x.distance)
-
-            # 增加一个维度
-            pt1s = []
-            pt2s = []
-            for match in goodMatch[:20]:
-                pt1s.append(kp1[match.queryIdx].pt)
-                pt2s.append(kp2[match.trainIdx].pt)
-            pt1s = np.array(pt1s)
-            pt2s = np.array(pt2s)
-
-            map_matrix = get_map_matrix(pt1s, pt2s)
-            left_mat = rescale_ratio * np.matrix(np.eye(3))
-            right_mat = (1/rescale_ratio) * np.matrix(np.eye(3))
-            left_mat[2, 2] = 1
-            right_mat[2, 2] = 1
-            map_matrix = left_mat * map_matrix * right_mat
-        else:
-            map_matrix = np.eye(3)
-        self.last_detect = (kp2, des2)
-        return map_matrix
-    def ecc_map_matrix(self,img,rescale_ratio):
-        # Convert images to grayscale
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        if self.last_img is None:
-            self.last_img = img
-            return np.matrix(np.eye(3))
-        # Define the motion model
-        warp_mode = cv2.MOTION_TRANSLATION
-
-        # Define 2x3 or 3x3 matrices and initialize the matrix to identity
-        if warp_mode == cv2.MOTION_HOMOGRAPHY:
-            warp_matrix = np.eye(3, 3, dtype=np.float32)
-        else:
-            warp_matrix = np.eye(2, 3, dtype=np.float32)
-
-        # Specify the number of iterations.
-        number_of_iterations = 100;
-
-        # Specify the threshold of the increment
-        # in the correlation coefficient between two iterations
-        termination_eps = 1e-2;
-
-        # Define termination criteria
-        criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, number_of_iterations, termination_eps)
-
-        # Run the ECC algorithm. The results are stored in warp_matrix.
-        _,map_matrix = cv2.findTransformECC(self.last_img, img, warp_matrix, warp_mode, criteria)
-
-        map_matrix = np.matrix(np.vstack([map_matrix, np.array([0, 0, 1])]).T)
-        # print(warp_matrix)
-        self.last_img = img
-        left_mat = rescale_ratio * np.matrix(np.eye(3))
-        right_mat = (1 / rescale_ratio) * np.matrix(np.eye(3))
-        left_mat[2, 2] = 1
-        right_mat[2, 2] = 1
-        return left_mat * map_matrix * right_mat
-    def get_two_img_map_matrix(self,img, rescale_ratio):
-        map_matrix = self.ecc_map_matrix(img,rescale_ratio)
-        # map_matrix = self.orb_map_matrix(img,rescale_ratio)
-        self.map_matrix = self.map_matrix * map_matrix
-        self.matrixs.append(self.map_matrix)
-        return map_matrix
-    def insert_frame_lost_track(self,refind_stracks):
-        insert_frame = {}
-        for strack in refind_stracks:
-            lost_tlwh = STrack.tlbr_to_tlwh(strack.last_track_tlbr)
-            if lost_tlwh[2] / lost_tlwh[3] > 1.6 or strack.tlwh[2] / strack.tlwh[3] > 1.6 :
-                continue
-            if lost_tlwh[2] * lost_tlwh[3] <= 100 or strack.tlwh[2] * strack.tlwh[3] <= 100 :
-                continue
-            if self.frame_id - (strack.last_track_frame_id+1) >= self.max_num_insframe :
-                continue
-            insert_frame[strack.track_id] = []
-            map_mat = np.linalg.inv(self.matrixs[strack.last_track_frame_id-1])*self.matrixs[-1]
-            tmp_tlbr = self.compute_mapped_tlbr(strack.tlbr,np.linalg.inv(map_mat))
-
-            for frame in range(strack.last_track_frame_id+1,self.frame_id):
-                tlbr = strack.last_track_tlbr + (frame - strack.last_track_frame_id) / (self.frame_id  - strack.last_track_frame_id) * (tmp_tlbr - strack.tlbr)
-                map_mat = np.linalg.inv(self.matrixs[strack.last_track_frame_id - 1]) * self.matrixs[frame-1]
-                tlwh = STrack.tlbr_to_tlwh(self.compute_mapped_tlbr(tlbr,map_mat))
-                insert_frame[strack.track_id].append((tlwh,frame))
-            strack.last_track_frame_id = self.frame_id
-            strack.last_track_tlbr = strack.tlbr
-        return  insert_frame
 
 def joint_stracks(tlista, tlistb):
     exists = {}

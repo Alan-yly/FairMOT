@@ -25,10 +25,10 @@ class Mynetwork(nn.Module):
             output = F.normalize(output, 2, -1)
             return  output
 
-        out1 = func(trg, src, trg_mask, src_mask)
-        out2 = func(src,trg,src_mask,trg_mask)
-        # out1 = F.normalize(src,2,-1)
-        # out2 = F.normalize(trg,2,-1)
+        # out1 = func(trg, src, trg_mask, src_mask)
+        # out2 = func(src,trg,src_mask,trg_mask)
+        out1 = F.normalize(src,2,-1)
+        out2 = F.normalize(trg,2,-1)
         mat = torch.matmul(out1,out2.transpose(2,1))
         src_mask = src_mask.unsqueeze(-1)
         trg_mask = trg_mask.unsqueeze(1)

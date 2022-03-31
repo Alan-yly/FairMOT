@@ -33,7 +33,7 @@ class AFLink:
         self.track = np.loadtxt(path_in, delimiter=',')
         self.model.cuda()
         self.model.eval()
-        self.feat =json.load(open('feat.json'))
+        # self.feat =json.load(open('feat.json'))
     # 获取轨迹信息
     def gather_info(self):
         id2info = defaultdict(list)
@@ -43,8 +43,8 @@ class AFLink:
             f = int(f)
             i = int(i)
             feat = np.zeros(128)
-            if str(f) in self.feat[str(i)].keys():
-                feat = np.array(self.feat[str(i)][str(f)])
+            if f in self.feat[i].keys():
+                feat = np.array(self.feat[i][f])
             id2info[i].append([f,feat,x+w/2,y+h/2])
         self.track = np.array(self.track)
         id2info = {k: np.array(v) for k, v in id2info.items()}
@@ -107,7 +107,6 @@ class AFLink:
         #     return INFINITY
         with torch.no_grad():
             score = self.model(feat1,feat2,mask1,mask2).squeeze().cpu().item()
-        print(score)
         return score
 
     # 去重复: 即去除同一帧同一ID多个框的情况

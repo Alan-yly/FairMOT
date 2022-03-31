@@ -217,8 +217,8 @@ class JDETracker(object):
         self.frame_id = 0
         #self.det_thresh = opt.conf_thres
         self.det_thresh = opt.conf_thres + 0.1
-        self.buffer_size = 20
-        self.max_time_lost = 300
+        self.buffer_size = 30
+        self.max_time_lost = 30
         self.max_per_image = opt.K
         self.mean = np.array(opt.mean, dtype=np.float32).reshape(1, 1, 3)
         self.std = np.array(opt.std, dtype=np.float32).reshape(1, 1, 3)
@@ -233,7 +233,7 @@ class JDETracker(object):
         self.last_img = None
         self.window_shake_ratios = []
         """Insert Module compent"""
-        self.max_num_insframe = 150
+        self.max_num_insframe = 30
         '''recorder'''
         self.recorder = None
         self.viser = None
@@ -482,7 +482,7 @@ class JDETracker(object):
         '''record tracked_track feature'''
         for track in output_stracks:
             self.feat_record[track.track_id][self.frame_id+self.start_frame_id] = track.curr_feat.tolist()
-        return out,insert_frame
+        return out,{}
 
     def compute_mapped_tlbr(self,tlbr,mat):
         tl = np.matrix(np.hstack([tlbr[:2], np.ones(1)]))
