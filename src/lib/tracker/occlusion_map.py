@@ -26,7 +26,12 @@ def generate_graph(tracks):
     iou_dist_mat = 1 - matching.iou_distance(tracks, tracks)
     for i in range(len(tracks)):
         for j in range(i + 1, len(tracks)):
-            if iou_dist_mat[i, j] >= 0.1:
+            wi = tracks[i].tlwh[2]
+            wj = tracks[j].tlwh[2]
+            hi = tracks[i].tlwh[3]
+            hj = tracks[j].tlwh[3]
+            ratio = 1/0.8
+            if iou_dist_mat[i, j] > 0 and 1/ratio < wi/wj < ratio and 1/ratio < hi/hj < ratio:
                 be_shelted = np.concatenate([tracks[i].tlbr[1::-1], tracks[i].tlbr[-1:-3:-1]], 0)
                 shelter = np.concatenate([tracks[j].tlbr[1::-1], tracks[j].tlbr[-1:-3:-1]], 0)
                 overlap_tblr = (max(be_shelted[0], shelter[0]), min(be_shelted[2], shelter[2]),

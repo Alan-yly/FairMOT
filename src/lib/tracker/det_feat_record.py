@@ -20,12 +20,12 @@ class det_feat_recorder():
             exit()
 
     def __del__(self):
-        # if self.mode == 'record':
-        #     self.fp = open(os.path.join(self.out_path, self.seq + '.json'), 'w')
-        #     json.dump((self.records,self.record_mats),self.fp)
-        #     self.fp.close()
-        #     print('finish record!')
-        pass
+        if self.mode == 'record':
+            self.fp = open(os.path.join(self.out_path, self.seq + '.json'), 'w')
+            json.dump((self.records,self.record_mats),self.fp)
+            self.fp.close()
+            print('finish record!')
+        # pass
     def record(self,a,b):
         if self.mode == 'record':
             self.records.append((a,b))

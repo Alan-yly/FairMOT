@@ -25,6 +25,7 @@ from tracker import det_feat_record
 from tracker import refined_track_vis
 from ..mywork.mynetwork import Mynetwork
 from cython_bbox import bbox_overlaps as bbox_ious
+from tracker import occlusion_map
 from  collections import defaultdict
 
 class STrack(BaseTrack):
@@ -406,7 +407,7 @@ class JDETracker(object):
 
 
         ''' Step 3: Second association, with embedding on lost'''
-        _, detections = self.match(self.lost_stracks, detections, 'embedding', 0.4, activated_starcks,
+        _, detections = self.match(self.lost_stracks, detections, 'loss_embedding', 0.4, activated_starcks,
                                                    refind_stracks)
 
         ''' Step 4: Third association, with IOU'''
@@ -646,17 +647,10 @@ class JDETracker(object):
             dists[ioudists > 0.8] = np.inf
             dists = matching.fuse_motion(self.kalman_filter, dists, tracks, dets)
         elif feature == 'loss_embedding':
-            ioudists = matching.iou_distance(tracks, dets)
             dists = matching.embedding_distance(tracks, dets)
-
-            for i in range(len(tracks)):
-                for j in range(len(dets)):
-                    if ioudists[i,j] <= 0.8:
-                        continue
-                    else:
-                        dists[i,j] = np.inf
+            ioudists = matching.iou_distance(tracks, dets)
+            dists[ioudists > 0.8] = np.inf
             dists = matching.fuse_motion(self.kalman_filter, dists, tracks, dets)
-
         else:
             exit()
             return
@@ -670,7 +664,19 @@ class JDETracker(object):
                 delete_dets += mat[1]
         '''MAA'''
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=threshold)
+        import copy
+        tmp_tracks = copy.copy(tracks)
         for itracked, idet in matches:
+            tmp_tracks[itracked] = dets[idet]
+
+        old_graph = occlusion_map.generate_graph(tracks)
+        new_graph = occlusion_map.generate_graph(tmp_tracks)
+        for i,(itracked, idet) in enumerate(matches):
+            if np.sum((old_graph[itracked] + new_graph[itracked]) == 1) > 0.5 * occlusion_map.M * occlusion_map.N :
+                self.len_rematch += 1
+                # u_track = np.append(u_track,itracked)
+                # u_detection = np.append(u_detection,idet)
+                continue
             track = tracks[itracked]
             det = dets[idet]
             if track.state == TrackState.Tracked:

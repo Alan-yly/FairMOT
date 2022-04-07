@@ -26,7 +26,7 @@ from tracker import refined_track_vis
 from ..mywork.mynetwork import Mynetwork
 from cython_bbox import bbox_overlaps as bbox_ious
 from  collections import defaultdict
-from tracker import occlusion_map
+
 class STrack(BaseTrack):
     shared_kalman = KalmanFilter()
     def __init__(self, tlwh, score, temp_feat, buffer_size,frame_id):
@@ -216,8 +216,8 @@ class JDETracker(object):
 
         self.frame_id = 0
         #self.det_thresh = opt.conf_thres
-        self.det_thresh = opt.conf_thres + 0.1
-        self.buffer_size = 30
+        self.det_thresh = opt.conf_thres
+        self.buffer_size = 20
         self.max_time_lost = 30
         self.max_per_image = opt.K
         self.mean = np.array(opt.mean, dtype=np.float32).reshape(1, 1, 3)
@@ -233,7 +233,7 @@ class JDETracker(object):
         self.last_img = None
         self.window_shake_ratios = []
         """Insert Module compent"""
-        self.max_num_insframe = 30
+        self.max_num_insframe = 150
         '''recorder'''
         self.recorder = None
         self.viser = None
@@ -252,6 +252,13 @@ class JDETracker(object):
         self.start_frame_id = None
 
         self.use_mat = False
+
+        '''iou_mean'''
+        self.iou_mean = 0
+        self.match_num = 0
+        self.lost_det = 0
+
+        self.iou_dist_time = defaultdict(list)
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
         dets = dets.reshape(1, -1, dets.shape[2])
@@ -392,29 +399,21 @@ class JDETracker(object):
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
-        """compute the map matrix"""
-        for strack in strack_pool:
-            if len(self.matrixs) > self.window_matrix + 1:
-                self.compute_mapped_track(strack, np.linalg.inv(self.matrixs[-self.window_matrix - 2]) * self.matrixs[
-                    -self.window_matrix - 1])
-        """compute the map matrix"""
 
 
 
         ''' Step 2: First association, with embedding'''
-        r_tracked_stracks,detections = self.match(tracked_stracks,detections,'embedding',0.4,activated_starcks,refind_stracks)
+        r_tracked_stracks,detections = self.match(strack_pool,detections,'embedding',0.4,activated_starcks,refind_stracks)
 
-
-        ''' Step 3: Second association, with embedding on lost'''
-        _, detections = self.match(self.lost_stracks, detections, 'embedding', 0.4, activated_starcks,
-                                                   refind_stracks)
-
+        for track in r_tracked_stracks[::-1]:
+            if track.state == TrackState.Lost:
+                r_tracked_stracks.pop(r_tracked_stracks.index(track))
         ''' Step 4: Third association, with IOU'''
         second_tracked_stracks,detections = self.match(r_tracked_stracks,detections,'Iou',0.5,activated_starcks,refind_stracks)
 
         ''' Step 5: association whit IOU on low score detection'''
-        second_tracked_stracks, _ = self.match(second_tracked_stracks, detections_second, 'Iou', 0.4, activated_starcks,
-                                                        refind_stracks)
+        # second_tracked_stracks, _ = self.match(second_tracked_stracks, detections_second, 'Iou', 0.4, activated_starcks,
+        #                                        refind_stracks)
 
 
         for track in second_tracked_stracks:
@@ -593,6 +592,7 @@ class JDETracker(object):
                 map_matrix = np.matrix(self.recorder.get_mat())
         else:
             map_matrix = np.eye(3)
+        map_matrix = np.eye(3)
         self.map_matrix = self.map_matrix * map_matrix
         self.matrixs.append(self.map_matrix)
         if len(self.window_shake_ratios) == 0:
@@ -642,57 +642,48 @@ class JDETracker(object):
             dists = matching.iou_distance(tracks, dets)
         elif feature == 'embedding':
             dists = matching.embedding_distance(tracks, dets)
-            ioudists = matching.iou_distance(tracks, dets)
-            dists[ioudists > 0.8] = np.inf
             dists = matching.fuse_motion(self.kalman_filter, dists, tracks, dets)
-        elif feature == 'loss_embedding':
-            ioudists = matching.iou_distance(tracks, dets)
-            dists = matching.embedding_distance(tracks, dets)
-
-            for i in range(len(tracks)):
-                for j in range(len(dets)):
-                    if ioudists[i,j] <= 0.8:
-                        continue
-                    else:
-                        dists[i,j] = np.inf
-            dists = matching.fuse_motion(self.kalman_filter, dists, tracks, dets)
-
         else:
             exit()
             return
-        '''MAA'''
-        maa = MAA.MAA(dists, 0.1, threshold)
-        mats = maa.search_all()
-        delete_dets = []
-        for mat in mats[:-1]:
-            dists[mat[0]][:, mat[1]] = np.inf
-            if mat[0] > mat[1]:
-                delete_dets += mat[1]
-        '''MAA'''
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=threshold)
-        import copy
-        tmp_tracks = copy.copy(tracks)
+        iou_dist = matching.iou_distance(tracks, dets)
         for itracked, idet in matches:
-            tmp_tracks[itracked] = dets[idet]
-
-        old_graph = occlusion_map.generate_graph(tracks)
-        new_graph = occlusion_map.generate_graph(tmp_tracks)
-        for i, (itracked, idet) in enumerate(matches):
-            if np.sum((old_graph[itracked] + new_graph[itracked]) == 1) > 0.5 * occlusion_map.M * occlusion_map.N:
-                self.len_rematch += 1
-                continue
             track = tracks[itracked]
             det = dets[idet]
+            self.iou_mean = self.iou_mean * self.match_num
+            self.iou_mean += iou_dist[itracked,idet]
+            self.match_num += 1
+            self.iou_mean /= self.match_num
             if track.state == TrackState.Tracked:
                 track.update(dets[idet], self.frame_id)
                 activated_starcks.append(track)
             else:
+                x = (det.tlbr[0] + det.tlbr[2]) / 2
+                w = det.tlwh[2]
+                y = (det.tlbr[1] + det.tlbr[3]) / 2
+                x1 = (track.tlbr[0] + track.tlbr[2]) / 2
+                y1 = (track.tlbr[1] + track.tlbr[3]) / 2
+                import math
+                dis = math.sqrt((x1-x)**2 + (y1 - y)**2)
+                self.iou_dist_time[(self.frame_id - track.last_track_frame_id)//5+1].append(dis)
+                if self.frame_id - track.last_track_frame_id <= 5:
+                    self.lost_det += 1
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
-        return [tracks[i] for i in u_track],[dets[i] for i in u_detection if i not in delete_dets]
+        return [tracks[i] for i in u_track],[dets[i] for i in u_detection if i not in []]
 
     def __del__(self):
-        print(self.len_rematch)
+        tmp = 0
+        for i in range(len(self.iou_dist_time)):
+            if len(self.iou_dist_time[i+1]) != 0:
+                print(sum(self.iou_dist_time[i+1])/len(self.iou_dist_time[i+1]))
+                tmp = sum(self.iou_dist_time[i+1])/len(self.iou_dist_time[i+1])
+            else:
+                print(tmp)
+        print('='*100)
+        for i in range(len(self.iou_dist_time)):
+            print((i+1)*5)
     def record_feat(self):
         import json
         f = open('feat.json','w')

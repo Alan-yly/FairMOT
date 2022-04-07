@@ -14,6 +14,7 @@ import torch
 from lib.tracker.tracker import JDETracker
 # from lib.tracker.multitracker import JDETracker
 # from lib.tracker.mot20tracker import JDETracker
+# from lib.tracker.tracker_test import JDETracker
 from lib.tracker.GSI import GSInterpolation
 from lib.tracker.AFL import AFLink
 from lib.tracker.byte_tracker import BYTETracker
@@ -72,12 +73,12 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
                }
     tracker.use_mat = use_mat[seq]
 
-    tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','record')
+    tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','get')
 
     timer = Timer()
     results = []
     len_all = len(dataloader)
-    start_frame = 0
+    start_frame = len_all // 2
     frame_id = start_frame
     tracker.start_frame_id = start_frame
     for i, (path, img, img0) in enumerate(dataloader):
