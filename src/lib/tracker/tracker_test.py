@@ -259,6 +259,7 @@ class JDETracker(object):
         self.lost_det = 0
 
         self.iou_dist_time = defaultdict(list)
+        self.num_insert_frame = 0
     def post_process(self, dets, meta):
         dets = dets.detach().cpu().numpy()
         dets = dets.reshape(1, -1, dets.shape[2])
@@ -341,7 +342,7 @@ class JDETracker(object):
             id_feature_second = np.array(b[1])
 
         """compute the map matrix"""
-        rescale_ratio = 0.25
+        rescale_ratio = 1
         img0 = cv2.resize(img0, None, None, rescale_ratio, rescale_ratio)
         self.get_two_img_map_matrix(img0, rescale_ratio)
         inv_map_matrix = np.linalg.inv(
@@ -399,8 +400,12 @@ class JDETracker(object):
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
-
-
+        """compute the map matrix"""
+        for strack in strack_pool:
+            if len(self.matrixs) > self.window_matrix + 1:
+                self.compute_mapped_track(strack, np.linalg.inv(self.matrixs[-self.window_matrix - 2]) * self.matrixs[
+                    -self.window_matrix - 1])
+        """compute the map matrix"""
 
         ''' Step 2: First association, with embedding'''
         r_tracked_stracks,detections = self.match(strack_pool,detections,'embedding',0.4,activated_starcks,refind_stracks)
@@ -476,12 +481,12 @@ class JDETracker(object):
             out.append((tlbr, strack.track_id))
         """compute the map matrix"""
         insert_frame = {}
-        insert_frame = self.insert_frame_lost_track(refind_stracks)
+        # insert_frame = self.insert_frame_lost_track(refind_stracks)
 
         '''record tracked_track feature'''
         for track in output_stracks:
             self.feat_record[track.track_id][self.frame_id+self.start_frame_id] = track.curr_feat.tolist()
-        return out,{}
+        return out,insert_frame
 
     def compute_mapped_tlbr(self,tlbr,mat):
         tl = np.matrix(np.hstack([tlbr[:2], np.ones(1)]))
@@ -585,8 +590,8 @@ class JDETracker(object):
     def get_two_img_map_matrix(self,img, rescale_ratio):
         if self.use_mat:
             if self.recorder.mode == 'record':
-                map_matrix = self.ecc_map_matrix(img,rescale_ratio)
-                # map_matrix = self.orb_map_matrix(img,rescale_ratio)
+                # map_matrix = self.ecc_map_matrix(img,rescale_ratio)
+                map_matrix = self.orb_map_matrix(img,rescale_ratio)
                 self.recorder.record_mat(map_matrix.tolist())
             else:
                 map_matrix = np.matrix(self.recorder.get_mat())
@@ -606,8 +611,10 @@ class JDETracker(object):
             mean_shake_ratio = (self.window_shake_ratios[-1] - self.window_shake_ratios[strack.last_track_frame_id-1]) / (strack.frame_id - strack.last_track_frame_id)
             max_insert_frames = self.max_num_insframe * np.exp(-np.abs(strack.mean[4])-np.abs(strack.mean[5])-mean_shake_ratio)
             if strack.frame_id - strack.last_track_frame_id >= max_insert_frames:
+                strack.last_track_frame_id = strack.frame_id
+                strack.last_track_tlbr = strack.tlbr
                 continue
-
+            self.num_insert_frame += strack.frame_id - strack.last_track_frame_id
             insert_frame[strack.track_id] = []
 
             def func(l):
@@ -648,7 +655,29 @@ class JDETracker(object):
             return
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=threshold)
         iou_dist = matching.iou_distance(tracks, dets)
+
+        import copy
+        tmp_tracks = copy.copy(tracks)
         for itracked, idet in matches:
+            tmp_tracks[itracked] = dets[idet]
+        if feature == 'embedding':
+            from tracker import occlusion_map
+            old_shelters = occlusion_map.generate_shelter_relation(tracks)
+            new_shelters = occlusion_map.generate_shelter_relation(tmp_tracks)
+            st = set()
+            for i,shelter_relations in enumerate(new_shelters):
+                for j in shelter_relations:
+                    if i in old_shelters[j]:
+                        st.add(i)
+                        st.add(j)
+
+
+        for itracked, idet in matches:
+            if feature == 'embedding' and itracked in st:
+                self.len_rematch += 1
+                u_track = np.append(u_track,itracked)
+                u_detection = np.append(u_detection,idet)
+                continue
             track = tracks[itracked]
             det = dets[idet]
             self.iou_mean = self.iou_mean * self.match_num
@@ -660,7 +689,6 @@ class JDETracker(object):
                 activated_starcks.append(track)
             else:
                 x = (det.tlbr[0] + det.tlbr[2]) / 2
-                w = det.tlwh[2]
                 y = (det.tlbr[1] + det.tlbr[3]) / 2
                 x1 = (track.tlbr[0] + track.tlbr[2]) / 2
                 y1 = (track.tlbr[1] + track.tlbr[3]) / 2
@@ -674,6 +702,7 @@ class JDETracker(object):
         return [tracks[i] for i in u_track],[dets[i] for i in u_detection if i not in []]
 
     def __del__(self):
+        print('!:'+str(self.iou_mean))
         tmp = 0
         for i in range(len(self.iou_dist_time)):
             if len(self.iou_dist_time[i+1]) != 0:
@@ -684,6 +713,8 @@ class JDETracker(object):
         print('='*100)
         for i in range(len(self.iou_dist_time)):
             print((i+1)*5)
+        print('*:'+str(self.lost_det/self.match_num))
+        print('->:'+str(self.num_insert_frame))
     def record_feat(self):
         import json
         f = open('feat.json','w')

@@ -607,6 +607,8 @@ class JDETracker(object):
             mean_shake_ratio = (self.window_shake_ratios[-1] - self.window_shake_ratios[strack.last_track_frame_id-1]) / (strack.frame_id - strack.last_track_frame_id)
             max_insert_frames = self.max_num_insframe * np.exp(-np.abs(strack.mean[4])-np.abs(strack.mean[5])-mean_shake_ratio)
             if strack.frame_id - strack.last_track_frame_id >= max_insert_frames:
+                strack.last_track_frame_id = strack.frame_id
+                strack.last_track_tlbr = strack.tlbr
                 continue
 
             insert_frame[strack.track_id] = []
@@ -644,7 +646,7 @@ class JDETracker(object):
         elif feature == 'embedding':
             dists = matching.embedding_distance(tracks, dets)
             ioudists = matching.iou_distance(tracks, dets)
-            dists[ioudists > 0.8] = np.inf
+            dists[ioudists > 0.5] = np.inf
             dists = matching.fuse_motion(self.kalman_filter, dists, tracks, dets)
         elif feature == 'loss_embedding':
             dists = matching.embedding_distance(tracks, dets)
@@ -669,14 +671,43 @@ class JDETracker(object):
         for itracked, idet in matches:
             tmp_tracks[itracked] = dets[idet]
 
-        old_graph = occlusion_map.generate_graph(tracks)
-        new_graph = occlusion_map.generate_graph(tmp_tracks)
+
+        # old_graph,old_shelters = occlusion_map.generate_graph(tracks)
+        # new_graph,new_shelters = occlusion_map.generate_graph(tmp_tracks)
+        if feature == 'embedding':
+            old_shelters = occlusion_map.generate_shelter_relation(tracks)
+            new_shelters = occlusion_map.generate_shelter_relation(tmp_tracks)
+            st = set()
+            for i,shelter_relations in enumerate(new_shelters):
+                for j in shelter_relations:
+                    if i in old_shelters[j]:
+                        st.add(i)
+                        st.add(j)
+
+
+
+
         for i,(itracked, idet) in enumerate(matches):
-            if np.sum((old_graph[itracked] + new_graph[itracked]) == 1) > 0.5 * occlusion_map.M * occlusion_map.N :
-                self.len_rematch += 1
-                # u_track = np.append(u_track,itracked)
-                # u_detection = np.append(u_detection,idet)
-                continue
+            # if feature == 'embedding' and itracked in st:
+            #     self.len_rematch += 1
+            #     u_track = np.append(u_track,itracked)
+            #     u_detection = np.append(u_detection,idet)
+            #     continue
+
+            # f = False
+            # for id in set(old_shelters[itracked]).union(new_shelters[itracked]):
+            #     tmp_graph = (old_graph[itracked] == id).astype(np.int_) + (new_graph[itracked] == id).astype(np.int_)
+            #     if np.sum(tmp_graph == 1) > 0.5 * occlusion_map.M * occlusion_map.N:
+            #         f = True
+            #         break
+            #
+            # if f and feature == 'embedding':
+            #     ioudis = ioudists[itracked, idet]
+            #     if ioudis != np.min(ioudists[itracked]) or ioudis != np.min(ioudists[:,idet]):
+            #         self.len_rematch += 1
+            #         u_track = np.append(u_track,itracked)
+            #         u_detection = np.append(u_detection,idet)
+            #         continue
             track = tracks[itracked]
             det = dets[idet]
             if track.state == TrackState.Tracked:
@@ -685,6 +716,7 @@ class JDETracker(object):
             else:
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
+
         return [tracks[i] for i in u_track],[dets[i] for i in u_detection if i not in delete_dets]
 
     def __del__(self):

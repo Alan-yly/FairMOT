@@ -12,6 +12,7 @@ def LinearInterpolation(input_, interval):
     output_ = input_.copy()
     '''线性插值'''
     id_pre, f_pre, row_pre = -1, -1, np.zeros((10,))
+    num_insert_frame = 0
     for row in input_:
         f_curr, id_curr = row[:2].astype(int)
         if id_curr == id_pre:  # 同ID
@@ -20,11 +21,13 @@ def LinearInterpolation(input_, interval):
                     step = (row - row_pre) / (f_curr - f_pre) * i
                     row_new = row_pre + step
                     output_ = np.append(output_, row_new[np.newaxis, :], axis=0)
+                    num_insert_frame += 1
         else:  # 不同ID
             id_pre = id_curr
         row_pre = row
         f_pre = f_curr
     output_ = output_[np.lexsort([output_[:, 0], output_[:, 1]])]
+    print('<-:'+str(num_insert_frame))
     return output_
 
 # 高斯平滑
@@ -59,3 +62,4 @@ def GSInterpolation(path_in, path_out, interval, tau):
     li = LinearInterpolation(input_, interval)
     gsi = GaussianSmooth(li, tau)
     np.savetxt(path_out, gsi, fmt='%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%d,%d')
+    # np.savetxt(path_out, li, fmt='%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%d,%d')
