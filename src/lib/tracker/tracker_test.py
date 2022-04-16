@@ -591,8 +591,9 @@ class JDETracker(object):
         if self.use_mat:
             if self.recorder.mode == 'record':
                 # map_matrix = self.ecc_map_matrix(img,rescale_ratio)
-                map_matrix = self.orb_map_matrix(img,rescale_ratio)
-                self.recorder.record_mat(map_matrix.tolist())
+                # map_matrix = self.orb_map_matrix(img,rescale_ratio)
+                # self.recorder.record_mat(map_matrix.tolist())
+                pass
             else:
                 map_matrix = np.matrix(self.recorder.get_mat())
         else:
@@ -660,24 +661,10 @@ class JDETracker(object):
         tmp_tracks = copy.copy(tracks)
         for itracked, idet in matches:
             tmp_tracks[itracked] = dets[idet]
-        if feature == 'embedding':
-            from tracker import occlusion_map
-            old_shelters = occlusion_map.generate_shelter_relation(tracks)
-            new_shelters = occlusion_map.generate_shelter_relation(tmp_tracks)
-            st = set()
-            for i,shelter_relations in enumerate(new_shelters):
-                for j in shelter_relations:
-                    if i in old_shelters[j]:
-                        st.add(i)
-                        st.add(j)
+
 
 
         for itracked, idet in matches:
-            if feature == 'embedding' and itracked in st:
-                self.len_rematch += 1
-                u_track = np.append(u_track,itracked)
-                u_detection = np.append(u_detection,idet)
-                continue
             track = tracks[itracked]
             det = dets[idet]
             self.iou_mean = self.iou_mean * self.match_num

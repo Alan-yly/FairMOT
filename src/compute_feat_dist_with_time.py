@@ -11,7 +11,7 @@ import tqdm
 import random
 import collections
 model = create_model('dla_34', {'hm': 1, 'wh': 4, 'id': 128, 'reg': 2},256)
-model = load_model(model, '/home/hust/yly/Model/fairmot_dla34.pth').cuda()
+model = load_model(model, '/home/hust/yly/Model/mot20_fairmot.pth').cuda()
 
 
 data_root = '/home/hust/yly/Dataset/MOT20/train/'
@@ -24,7 +24,8 @@ frame_unint = 100
 
 hists = collections.defaultdict(list)
 for seq in seqs:
-
+    if seq[-1] == 'M' or seq[-1] == 'N':
+        continue
     path_in = os.path.join(data_root,seq,'gt/gt.txt')
     gt = np.loadtxt(path_in, delimiter=',')
     gt = gt[gt[:,-3] == 1]
@@ -114,11 +115,11 @@ import matplotlib.pyplot as plt
 bins = np.linspace(0, 2, 100)
 fig = plt.figure()
 ax = fig.add_subplot(111)
-for key in hists.keys():
+for key in sorted(hists.keys()):
     hist = hists[key]
     hist = np.array(hist)
     avg = np.mean(hist)
-    print(key)
+    # print(key)
     print("%.4f" % avg + '±' + "%.4f" % np.sqrt(np.mean((hist - avg) ** 2)))
     ax.hist(hist, label='[{},{})'.format(key-frame_unint,key), histtype='stepfilled', alpha=0.5, density=True, bins=bins)
 

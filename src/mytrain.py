@@ -20,7 +20,7 @@ def main():
     valset = dataset.Dataset(val_config)
     model = network.Mynetwork(model_config)
     loss = network.Myloss(model_config)
-    optimizer = torch.optim.Adam(model.parameters(), train_config['base_lr'])
+    optimizer = torch.optim.Adam(model.parameters(), train_config['base_lr'],weight_decay=1e-5)
     start_epoch = train_config['start_epoch']
 
     # Get dataloader
