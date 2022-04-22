@@ -45,7 +45,8 @@ class AFLink:
             feat = np.zeros(128)
             if f in self.feat[i].keys():
                 feat = np.array(self.feat[i][f])
-            id2info[i].append([f,feat,x+w/2,y+h/2])
+            tlbr = [x,y,x+w,y+h]
+            id2info[i].append([f,feat,tlbr])
         self.track = np.array(self.track)
         id2info = {k: np.array(v) for k, v in id2info.items()}
         return id2info
@@ -104,8 +105,10 @@ class AFLink:
             for j, id_j in enumerate(ids):  # 后一轨迹
                 if id_i == id_j: continue   # 禁止自娱自乐
                 info_i, info_j = id2info[id_i], id2info[id_j]
-                fi,xyi = info_i[-1][0] , info_i[-1][2:]
-                fj,xyj = info_j[0][0], info_j[0][2:]
+                fi,tlbri = info_i[-1][0] , info_i[-1][2]
+                fj,tlbrj = info_j[0][0], info_j[0][2]
+                xyi = [(tlbri[0]+tlbri[2])/2,(tlbri[1]+tlbri[3])/2]
+                xyj = [(tlbrj[0] + tlbrj[2]) / 2, (tlbrj[1] + tlbrj[3]) / 2]
                 if not self.thrT[0] <= fj - fi < self.thrT[1]: continue
                 if f(xyi[0] - xyj[0] , xyi[1] - xyj[1]) > 75: continue
                 cost = self.predict(info_i, info_j)
@@ -115,9 +118,18 @@ class AFLink:
         ID2ID = dict()  # 存储最终匹配结果
         cost_matrix, ids_row, ids_col = self.compression(cost_matrix, ids)
         indices = linear_sum_assignment(cost_matrix)
+        sum = 0
         for i, j in zip(indices[0], indices[1]):
             if cost_matrix[i, j] < self.thrP:
+                # id_i = ids_row[i]
+                # id_j = ids_col[j]
+                # print('[{0},{1},{2}]'.format(id2info[id_i][max(-30,-len(id2info[id_i])+1)][0],id2info[id_j][0][0],id2info[id_i][max(-15,-len(id2info[id_i]))][0]))
+                # print([id2info[id_i][max(-30,-len(id2info[id_i])+1)][2], id2info[id_j][0][2],id2info[id_i][max(-15,-len(id2info[id_i]))][2]])
+                sum += 1
                 id2id[ids_row[i]] = ids_col[j]
+        print('*' * 100)
+        print(sum)
+        print('*'*100)
         for k, v in id2id.items():
             if k in ID2ID:
                 ID2ID[v] = ID2ID[k]

@@ -15,11 +15,17 @@ def linear_assignment(cost_matrix, thresh):
     matches = np.asarray(matches)
     return matches, unmatched_a, unmatched_b
 
-data_root = '/home/hust/yly/Dataset/MOT20/train/'
+data_root = '/home/hust/yly/Dataset/MOT17/train/'
 seqs = os.listdir(data_root)
 seqs = sorted(seqs)
-
+import collections
+res_mat = [collections.defaultdict(int),collections.defaultdict(int)]
+res_sum = [collections.defaultdict(int),collections.defaultdict(int)]
+seqs_group = ['02','04','09']
+# seqs_group = []
 for seq in seqs:
+    if seq[-3:] != 'DPM':
+        continue
     path_in = os.path.join(data_root,seq,'gt/gt.txt')
     det_in = os.path.join(data_root,seq,'det/det.txt')
     gt = np.loadtxt(path_in, delimiter=',')
@@ -62,3 +68,24 @@ for seq in seqs:
     keys = sorted(keys)
     for key in keys:
         print(sum_match[key] / sum_ob[key])
+        if seq[6:8] in seqs_group:
+            res_mat[0][key] += sum_match[key]
+            res_sum[0][key] += sum_ob[key]
+        else:
+            res_mat[1][key] += sum_match[key]
+            res_sum[1][key] += sum_ob[key]
+
+
+print('no motion')
+keys = []
+for key in sum_ob.keys():
+    keys.append(key)
+
+keys = sorted(keys)
+for key in keys:
+    print('[{0},{1})'.format(key*0.2,key*0.2+0.2))
+for key in res_mat[0].keys():
+    print(res_mat[0][key] / res_sum[0][key])
+print('move')
+for key in res_mat[1].keys():
+    print(res_mat[1][key] / res_sum[1][key])

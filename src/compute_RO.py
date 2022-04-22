@@ -16,7 +16,8 @@ for seq in seqs:
     sum_ob = 0
     sum_iou = 0
     print(seq+':')
-    thres = [i*0.2 + 0.1 for i in range(5)]
+    mro = 0
+    thres = [i*0.05 + 0.05 for i in range(19)]
     for thre in thres:
         for i in range(1,max_frame+1):
             objects = input_[input_[:,0] == i]
@@ -27,3 +28,5 @@ for seq in seqs:
             sum_iou += np.sum(iou_dist > 0.2) - num_ob
             sum_ob += num_ob
         print(sum_iou / sum_ob)
+        mro += sum_iou / sum_ob
+    print('mro:'+str(mro/19))

@@ -73,12 +73,12 @@ def eval_seq(opt, dataloader, data_type, result_filename,seq, save_dir=None, sho
                }
     tracker.use_mat = use_mat[seq]
 
-    tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','record')
+    tracker.recorder =  det_feat_record.det_feat_recorder(seq,'/home/hust/yly/Dataset/MOT17/','get')
 
     timer = Timer()
     results = []
     len_all = len(dataloader)
-    start_frame = 0
+    start_frame = len_all // 2
     frame_id = start_frame
     tracker.start_frame_id = start_frame
     for i, (path, img, img0) in enumerate(dataloader):
@@ -170,6 +170,10 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
         logger.info('Evaluate seq: {}'.format(seq))
         evaluator = Evaluator(data_root, seq, data_type)
         accs.append(evaluator.eval_file(result_filename))
+        events = evaluator.acc.events
+        events_csv = os.path.join(result_root,'{}.csv'.format(seq))
+        events.to_csv(events_csv)
+        print(events_csv)
         if save_videos:
             output_video_path = osp.join(output_dir, '{}.mp4'.format(seq))
             cmd_str = 'ffmpeg -f image2 -i {}/%05d.jpg -c:v copy {}'.format(output_dir, output_video_path)
